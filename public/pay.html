@@ -1,0 +1,20 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pembayaran</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.55 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:linear-gradient(180deg,#0b1f4b 0,#1d4ed8 230px,#f5f7fb 230px);color:#0f172a;min-height:100vh;padding:22px 16px;-webkit-font-smoothing:antialiased}
+.w{max-width:420px;margin:0 auto}.br{display:flex;align-items:center;justify-content:center;gap:10px;color:#fff;font-weight:800;font-size:18px;margin:6px 0 20px}.br img,.br i{width:30px;height:30px;border-radius:8px;object-fit:contain}.br i{background:linear-gradient(135deg,#60a5fa,#22d3ee)}
+.c{background:#fff;border-radius:20px;padding:26px 22px;text-align:center;box-shadow:0 20px 50px #0b1f4b33}.mu{color:#64748b;font-size:13px}.amt{font-size:34px;font-weight:800;letter-spacing:-.02em;margin:2px 0}
+#q img{width:250px;max-width:100%;border:1px solid #e5e9f2;border-radius:14px;padding:10px;margin-top:14px}
+.pill{display:inline-block;padding:4px 14px;border-radius:99px;font-size:13px;font-weight:700;background:#fff4d6;color:#92600a;margin-top:14px}.pill.settlement{background:#e7f6ec;color:#15803d}.pill.expire,.pill.cancel{background:#fdecea;color:#b42318}
+a.b{display:block;margin-top:14px;padding:12px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-weight:700}
+ol{text-align:left;color:#475569;font-size:13px;margin:18px 0 0;padding:14px 14px 14px 32px;background:#f5f7fb;border-radius:12px}.sec{margin-top:16px;text-align:center;color:#64748b;font-size:12px}
+</style></head><body><div class="w"><div class="br" id="br"><i></i><span>Pembayaran</span></div><div class="c"><div class="mu">Total pembayaran</div><div class="amt" id="a">...</div><div class="mu" id="f" style="margin-bottom:6px"></div><div id="q"></div><div id="s"></div><p class="mu" id="x"></p><ol id="h"><li>Buka aplikasi bank atau e-wallet</li><li>Pilih bayar dengan scan QRIS</li><li>Scan kode di atas dan konfirmasi</li></ol></div><div class="sec">Pembayaran aman lewat QRIS. Status berubah otomatis setelah dibayar.</div></div>
+<script>
+const id=location.pathname.split('/')[2],$=s=>document.getElementById(s),ST={pending:'Menunggu pembayaran',settlement:'Pembayaran berhasil',expire:'Kedaluwarsa',cancel:'Dibatalkan'};let shown=false,t;
+fetch('/api/brand').then(r=>r.json()).then(b=>{if(b.name||b.logo)$('br').innerHTML=(b.logo?'<img alt="" src="'+b.logo.replace(/"/g,'')+'">':'<i></i>')+'<span></span>';if(b.name){document.title=b.name;$('br').lastChild.textContent=b.name}}).catch(()=>{});
+async function tick(){try{const d=await (await fetch('/pay/'+id+'/info')).json();if(d.error)throw 0;
+const R=n=>'Rp\u00a0'+Number(n).toLocaleString('id-ID');$('a').textContent=R(d.total??d.amount);$('f').textContent=d.fee_by=='buyer'&&d.fee?R(d.amount)+' + biaya layanan '+R(d.fee):'';
+$('s').innerHTML='<span class="pill '+d.status+'">'+(ST[d.status]||d.status)+'</span>';
+if(d.status=='pending'){if(!shown){shown=true;$('q').innerHTML=d.qr?'<img alt="QRIS" src="/pay/'+id+'/qr">':(d.go?'<a class="b" href="/pay/'+id+'/go">Lanjut bayar</a>':'')}if(d.expiry)$('x').textContent='Berlaku sampai '+d.expiry}
+else{$('q').innerHTML='';$('h').style.display='none';$('x').textContent=d.reference?'Ref: '+d.reference:'';clearInterval(t)}}catch(e){$('a').textContent='Tidak ditemukan';$('h').style.display='none';clearInterval(t)}}
+tick();t=setInterval(tick,3000);
+</script></body></html>

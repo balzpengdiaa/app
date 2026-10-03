@@ -1,0 +1,78 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dokumentasi API - Balz Pay</title>
+<style>
+:root{--bg:#f4f6fa;--ink:#0f1c2e;--mu:#64748b;--ln:#e2e8f0;--ac:#2563eb;--nv:#0b1b33}
+*{box-sizing:border-box}body{margin:0;font:15px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--nv);color:#fff;padding:12px 18px;display:flex;gap:14px;align-items:center}header b{flex:1;font-size:17px}header a{color:#fff;text-decoration:none;font-weight:600;font-size:14px}
+main{max-width:860px;margin:0 auto;padding:18px 18px 50px}h1{font-size:28px;margin:8px 0 4px;letter-spacing:-.02em}.mu{color:var(--mu)}
+section{background:#fff;border:1px solid var(--ln);border-radius:16px;padding:20px 22px;margin-bottom:14px}h2{font-size:19px;margin:0 0 8px}h3{font-size:15px;margin:16px 0 6px}
+code{font:.87em ui-monospace,Menlo,Consolas,monospace;background:#f1f5f9;border:1px solid var(--ln);border-radius:5px;padding:1px 5px}
+pre{background:#0f1a2e;color:#e6edf7;border-radius:12px;padding:14px;overflow-x:auto;font-size:13px;line-height:1.55;margin:8px 0 12px}pre code{background:none;border:0;padding:0;color:inherit}
+.ep{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#f8fafc;border:1px solid var(--ln);border-radius:10px;padding:9px 12px;margin:8px 0;font:14px ui-monospace,Menlo,monospace;word-break:break-all}
+.v{font:800 12px system-ui;padding:3px 9px;border-radius:6px;color:#fff;background:var(--ac)}.v.g{background:#15803d}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--ln);vertical-align:top}th{color:var(--mu);font-size:12px}
+.note{background:#fff4d6;color:#6b5000;border-radius:10px;padding:10px 12px;font-size:14px;margin:10px 0}
+</style></head><body>
+<header><b>Balz Pay</b><a href="/">Dashboard</a></header>
+<main>
+<h1>Dokumentasi API</h1>
+<p class="mu">Base URL: <code>https://DOMAIN</code>. Semua request dan respons berformat JSON.</p>
+
+<section id="auth"><h2>Autentikasi</h2>
+<p>Setiap akun punya API key sendiri, bisa dilihat dan dibuat ulang di dashboard tab <b>API</b>. Kirim lewat header:</p>
+<pre><code>x-api-key: KEY_KAMU</code></pre>
+<div class="note">Panggil API dari server kamu, jangan dari browser atau aplikasi publik. API key hanya bisa membuat dan mengecek transaksi. Tarik saldo dan pengaturan akun hanya lewat dashboard.</div>
+<div class="ep"><span class="v g">GET</span>https://DOMAIN/api/me</div>
+<pre><code>curl https://DOMAIN/api/me -H "x-api-key: KEY_KAMU"
+# {"username":"budi","role":"user","saldo":120000}</code></pre></section>
+
+<section id="create"><h2>Buat transaksi QRIS</h2>
+<div class="ep"><span class="v">POST</span>https://DOMAIN/api/pay/create</div>
+<div class="tw"><table><tr><th>Field</th><th>Tipe</th><th>Keterangan</th></tr>
+<tr><td><code>amount</code></td><td>integer</td><td>Wajib. Nominal rupiah, 1.000 sampai 10.000.000.</td></tr>
+<tr><td><code>channel</code></td><td>string</td><td>Opsional. <code>qris</code> (default) atau <code>qrisfast</code>.</td></tr>
+<tr><td><code>reference</code></td><td>string</td><td>Opsional. ID pesanan milikmu (maks 64 karakter), ikut dikembalikan di respons.</td></tr></table></div>
+<div class="note">Biaya: QRIS 0,1% + Rp 100 (saldo cair H+1) dan QRIS Fast 0,7% + Rp 250 (saldo langsung bisa ditarik). Pilih lewat parameter <code>channel</code>. Siapa yang menanggung diatur di dashboard menu <b>Pengaturan &gt; Biaya QRIS</b>, bukan lewat request.</div>
+<pre><code>curl -X POST https://DOMAIN/api/pay/create \
+  -H "x-api-key: KEY_KAMU" -H "Content-Type: application/json" \
+  -d '{"amount":50000,"reference":"ORDER-1"}'</code></pre>
+<pre><code>{ "id": "3F9A1C7E52B0D4A8", "reference": "ORDER-1", "amount": 50000, "fee": 600, "fee_by": "buyer",
+  "total": 50600, "net": 50000, "status": "pending",
+  "pay_url": "https://DOMAIN/pay/3F9A1C7E52B0D4A8",
+  "qr_url": "https://DOMAIN/pay/3F9A1C7E52B0D4A8/qr",
+  "expiry": "2026-10-02 14:45:00", "createdAt": "2026-10-02T07:30:00.000Z" }</code></pre>
+<div class="tw"><table><tr><th>Field</th><th>Keterangan</th></tr>
+<tr><td><code>id</code></td><td>ID transaksi. Dipakai untuk cek status dan batal. Simpan di database kamu.</td></tr>
+<tr><td><code>fee</code>, <code>fee_by</code></td><td>Biaya QRIS (rupiah) dan penanggungnya: <code>buyer</code> atau <code>merchant</code>.</td></tr>
+<tr><td><code>total</code></td><td>Yang harus dibayar pembeli. Kalau <code>fee_by</code> = <code>buyer</code>, nilainya <code>amount</code> + <code>fee</code>. Kalau <code>merchant</code>, sama dengan <code>amount</code>. Tampilkan nilai ini ke pembeli.</td></tr>
+<tr><td><code>net</code></td><td>Yang masuk ke saldomu setelah dibayar. <code>buyer</code>: sama dengan <code>amount</code>. <code>merchant</code>: <code>amount</code> dikurangi <code>fee</code>.</td></tr>
+<tr><td><code>pay_url</code></td><td>Halaman bayar. Kirim ke pembeli lewat WhatsApp, email, atau chat. Statusnya berubah otomatis saat dibayar.</td></tr>
+<tr><td><code>qr_url</code></td><td>Gambar QR, bisa dipasang langsung di <code>&lt;img&gt;</code>. Bisa <code>null</code>, pakai <code>pay_url</code> saja.</td></tr>
+<tr><td><code>expiry</code></td><td>Batas waktu pembayaran.</td></tr></table></div></section>
+
+<section id="status"><h2>Cek status transaksi</h2>
+<div class="ep"><span class="v g">GET</span>https://DOMAIN/api/pay/status?id=ID</div>
+<div class="ep"><span class="v">POST</span>https://DOMAIN/api/pay/status &nbsp;<small>body: {"id":"ID"}</small></div>
+<pre><code>curl "https://DOMAIN/api/pay/status?id=3F9A1C7E52B0D4A8" -H "x-api-key: KEY_KAMU"</code></pre>
+<p>Responsnya sama seperti saat membuat transaksi, dengan <code>status</code> terbaru.</p>
+<div class="tw"><table><tr><th>status</th><th>Arti</th></tr>
+<tr><td><code>pending</code></td><td>Belum dibayar. Cek lagi tiap 3 sampai 5 detik.</td></tr>
+<tr><td><code>settlement</code></td><td>Sudah dibayar. Saldo akunmu bertambah sebesar <code>net</code>, sekali saja.</td></tr>
+<tr><td><code>expire</code></td><td>Lewat batas waktu.</td></tr>
+<tr><td><code>cancel</code></td><td>Dibatalkan.</td></tr></table></div>
+<h3>Batalkan dan daftar</h3>
+<div class="ep"><span class="v">POST</span>https://DOMAIN/api/pay/cancel &nbsp;<small>body: {"id":"ID"}, hanya yang masih pending</small></div>
+<div class="ep"><span class="v g">GET</span>https://DOMAIN/api/pay/list &nbsp;<small>50 transaksi terakhir</small></div></section>
+
+<section id="withdraw"><h2>Tarik saldo</h2>
+<p>Penarikan dilakukan di dashboard tab <b>Tarik saldo</b>: pilih metode, isi tujuan dan nominal. Fee dan batas ditampilkan sebelum diajukan. Admin memproses transfer, dan kalau ditolak saldo kembali otomatis.</p></section>
+
+<section id="error"><h2>Error</h2>
+<p>Bentuknya <code>{"error":"pesan"}</code> dengan kode HTTP:</p>
+<div class="tw"><table><tr><th>Kode</th><th>Arti</th></tr>
+<tr><td><code>400</code></td><td>Input tidak valid, misalnya nominal di luar batas.</td></tr>
+<tr><td><code>401</code></td><td>API key tidak ada atau tidak valid.</td></tr>
+<tr><td><code>403</code></td><td>Endpoint ini hanya bisa lewat dashboard.</td></tr>
+<tr><td><code>404</code></td><td>Transaksi tidak ditemukan.</td></tr>
+<tr><td><code>429</code></td><td>Terlalu banyak request (batas buat transaksi 30 per menit).</td></tr>
+<tr><td><code>502</code></td><td>Layanan pembayaran sedang bermasalah, coba lagi sebentar.</td></tr></table></div></section>
+</main></body></html>

@@ -1,434 +1,90 @@
 <!doctype html>
-<html lang="id">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gopayment - Pembayaran QRIS</title>
-  <meta name="description" content="Buat pembayaran QRIS dan selesaikan dalam hitungan menit.">
-  <style>
-    :root {
-      --bg: #ffffff;
-      --ink: #111111;
-      --muted: #555555;
-      --line: #e5e5e5;
-      --accent: #00a651;
-      --accent-dark: #007a3d;
-      --panel: #f8f8f8;
-      --red: #c0392b;
-      --amber: #b9770e;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: var(--ink);
-      background: var(--bg);
-      line-height: 1.6;
-    }
-    .wrap { max-width: 560px; margin: 0 auto; padding: 0 20px; }
-    header {
-      border-bottom: 1px solid var(--line);
-      padding: 18px 0;
-      margin-bottom: 36px;
-    }
-    .brand { font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
-    .brand span { color: var(--accent); }
-    h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 6px; }
-    p.sub { color: var(--muted); margin: 0 0 28px; font-size: 15px; }
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 24px;
-      background: #fff;
-    }
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      margin: 16px 0 6px;
-    }
-    label:first-of-type { margin-top: 0; }
-    input, textarea {
-      width: 100%;
-      padding: 11px 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      font: inherit;
-      font-size: 15px;
-      outline: none;
-      background: #fff;
-      color: var(--ink);
-    }
-    input:focus, textarea:focus { border-color: var(--accent); }
-    input.err, textarea.err { border-color: var(--red); }
-    textarea { min-height: 72px; resize: vertical; }
-    .amount-input { position: relative; }
-    .currency {
-      position: absolute;
-      left: 12px; top: 50%;
-      transform: translateY(-50%);
-      color: var(--muted);
-      font-size: 13px;
-      pointer-events: none;
-    }
-    .amount-input input { padding-left: 46px; }
-    .btn {
-      width: 100%;
-      margin-top: 20px;
-      padding: 12px;
-      border: 0;
-      border-radius: 8px;
-      font: inherit;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      background: var(--accent);
-      color: #fff;
-    }
-    .btn:hover { background: var(--accent-dark); }
-    .btn:disabled { opacity: .55; cursor: wait; }
-    .btn-ghost {
-      margin-top: 10px;
-      background: transparent;
-      color: var(--ink);
-      border: 1px solid var(--line);
-    }
-    .btn-ghost:hover { background: var(--panel); }
-    .fine { margin: 14px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
-    .hidden { display: none; }
-    .payer { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
-    .payer .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-    .payer .name { font-size: 20px; font-weight: 700; margin-top: 2px; }
-    .payer .about { color: var(--muted); font-size: 13px; }
-    .breakdown { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
-    .row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); padding: 3px 0; }
-    .row strong { color: var(--ink); font-weight: 600; }
-    .row.total { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 8px; font-size: 14px; }
-    .row.total strong { font-size: 17px; color: var(--accent-dark); }
-    .notice {
-      background: #fdf6e3;
-      border: 1px solid #f0e0b0;
-      color: #7a5c00;
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 13px;
-      margin-bottom: 14px;
-    }
-    .qr-box {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      padding: 18px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #fff;
-    }
-    .qr-box img { width: min(100%, 220px); aspect-ratio: 1; display: block; }
-    .qr-hint { color: var(--muted); font-size: 12px; text-align: center; }
-    .status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 14px;
-      padding: 10px 12px;
-      border: 1px solid;
-      border-radius: 8px;
-      font-size: 13px;
-    }
-    .st-pending { color: #7a5c00; border-color: #f0e0b0; background: #fdf6e3; }
-    .st-checking { color: #1a5276; border-color: #aed6f1; background: #eaf2f8; }
-    .st-success { color: var(--accent-dark); border-color: #a9dfbf; background: #eafaf1; }
-    .st-timeout, .st-error { color: var(--red); border-color: #f5b7b1; background: #fdedec; }
-    .spinner {
-      width: 13px; height: 13px;
-      flex: 0 0 13px;
-      border: 2px solid currentColor;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin .8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .success { text-align: center; padding: 8px 0; }
-    .success-check {
-      width: 60px; height: 60px;
-      display: grid; place-items: center;
-      margin: 0 auto 14px;
-      border-radius: 50%;
-      background: var(--accent); color: #fff;
-      font-size: 30px; font-weight: 700;
-    }
-    .success h2 { margin: 0 0 6px; font-size: 21px; }
-    .success p { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
-    .receipt {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      text-align: left;
-      overflow: hidden;
-      margin-bottom: 12px;
-    }
-    .receipt .rrow {
-      display: flex; justify-content: space-between; gap: 12px;
-      padding: 9px 12px;
-      border-bottom: 1px solid var(--line);
-      font-size: 13px;
-    }
-    .receipt .rrow:last-child { border-bottom: 0; }
-    .receipt .k { color: var(--muted); }
-    .receipt .v { font-weight: 600; text-align: right; overflow-wrap: anywhere; max-width: 60%; }
-    footer {
-      border-top: 1px solid var(--line);
-      margin-top: 44px;
-      padding: 20px 0 30px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    @media (max-width: 520px) {
-      .card { padding: 18px; }
-      h1 { font-size: 22px; }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="wrap">
-      <div class="brand">Gopayment<span>.</span></div>
-    </div>
-  </header>
-
-  <main class="wrap">
-    <h1>Buat pembayaran</h1>
-    <p class="sub">Masukkan detail tagihan, lalu bayar lewat QRIS.</p>
-
-    <div class="card">
-      <!-- Form -->
-      <div id="form-view">
-        <label for="nama">Nama pembayar</label>
-        <input id="nama" type="text" placeholder="Contoh: Budi" maxlength="100" autocomplete="name">
-
-        <label for="tentang">Keterangan</label>
-        <textarea id="tentang" placeholder="Contoh: bayar desain logo" maxlength="300"></textarea>
-
-        <label for="nominal">Nominal</label>
-        <div class="amount-input">
-          <span class="currency">IDR</span>
-          <input id="nominal" type="number" min="1" max="100000000" placeholder="50000" inputmode="numeric">
-        </div>
-
-        <button class="btn" id="pay-btn" onclick="submitPayment()">Buat kode pembayaran</button>
-        <p class="fine">Detail tagihan dipakai untuk verifikasi pembayaran.</p>
-      </div>
-
-      <!-- QRIS -->
-      <div id="qr-view" class="hidden">
-        <div class="payer">
-          <div class="lbl">Tagihan untuk</div>
-          <div class="name" id="disp-nama">-</div>
-          <div class="about" id="disp-tentang">-</div>
-        </div>
-        <div class="breakdown">
-          <div class="row"><span>Nominal</span><strong id="disp-nominal">-</strong></div>
-          <div class="row"><span>Kode unik</span><strong id="disp-sc">-</strong></div>
-          <div class="row total"><span>Total pembayaran</span><strong id="disp-total">-</strong></div>
-        </div>
-        <div class="notice">Transfer tepat sesuai total. Kode unik dipakai sistem untuk mencocokkan pembayaran kamu.</div>
-        <div class="qr-box">
-          <img id="qr-img" alt="QRIS payment code">
-          <div class="qr-hint">Scan pakai aplikasi yang mendukung QRIS (GoPay, OVO, m-banking, dll).</div>
-        </div>
-        <div id="status-box" class="status st-pending"><span class="spinner"></span><span>Menunggu pembayaran...</span></div>
-        <button class="btn btn-ghost" id="check-btn" onclick="manualCheck()">Cek pembayaran sekarang</button>
-        <button class="btn btn-ghost" id="back-btn" onclick="resetForm()">Buat tagihan baru</button>
-      </div>
-
-      <!-- Success -->
-      <div id="success-view" class="hidden">
-        <div class="success">
-          <div class="success-check">&#10003;</div>
-          <h2>Pembayaran berhasil</h2>
-          <p>Tagihan kamu sudah terverifikasi. Terima kasih.</p>
-          <div class="receipt">
-            <div class="rrow"><span class="k">Nominal</span><span class="v" id="res-nominal">-</span></div>
-            <div class="rrow"><span class="k">Kode unik</span><span class="v" id="res-sc">-</span></div>
-            <div class="rrow"><span class="k">Total dibayar</span><span class="v" id="res-total">-</span></div>
-            <div class="rrow"><span class="k">Keterangan</span><span class="v" id="res-tentang">-</span></div>
-            <div class="rrow"><span class="k">Bank</span><span class="v" id="res-issuer">-</span></div>
-            <div class="rrow"><span class="k">ID transaksi</span><span class="v" id="res-txid">-</span></div>
-            <div class="rrow"><span class="k">Waktu</span><span class="v" id="res-waktu">-</span></div>
-          </div>
-          <button class="btn btn-ghost" onclick="resetForm()">Buat tagihan baru</button>
-        </div>
-      </div>
-    </div>
-  </main>
-
-  <footer>
-    <div class="wrap">Gopayment - pembayaran QRIS di Vercel.</div>
-  </footer>
-
-  <script>
-    let sessionId = null;
-    let isDone = false;
-    let isChecking = false;
-    let pollTimer = null;
-
-    const $ = id => document.getElementById(id);
-    const fmt = n => 'Rp\u00a0' + Number(n || 0).toLocaleString('id-ID');
-    const escapeHtml = v => String(v ?? '-').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-    function setStatus(type, text) {
-      const box = $('status-box');
-      box.className = 'status st-' + type;
-      box.innerHTML = '';
-      if (type === 'pending' || type === 'checking') {
-        const s = document.createElement('span');
-        s.className = 'spinner';
-        box.appendChild(s);
-      }
-      const label = document.createElement('span');
-      label.textContent = text || (type === 'pending' ? 'Menunggu pembayaran...' : 'Mengecek transaksi...');
-      box.appendChild(label);
-    }
-
-    async function submitPayment() {
-      const nama = $('nama').value.trim().replace(/[<>"']/g, '');
-      const tentang = $('tentang').value.trim().replace(/[<>"']/g, '');
-      const nominal = $('nominal').value.trim();
-
-      ['nama', 'tentang', 'nominal'].forEach(id => $(id).classList.remove('err'));
-      let firstErr = null;
-      if (!nama) firstErr = firstErr || 'nama';
-      if (!tentang) firstErr = firstErr || 'tentang';
-      if (!nominal || parseInt(nominal, 10) < 1) firstErr = firstErr || 'nominal';
-      if (firstErr) {
-        $('nama').classList.toggle('err', !nama);
-        $('tentang').classList.toggle('err', !tentang);
-        $('nominal').classList.toggle('err', !nominal || parseInt(nominal, 10) < 1);
-        $(firstErr).focus();
-        return;
-      }
-
-      const btn = $('pay-btn');
-      btn.disabled = true;
-      btn.textContent = 'Membuat tagihan...';
-
-      try {
-        const res = await fetch('/api/create-payment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nama, tentang, nominal }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Error ' + res.status);
-        sessionId = data.sessionId;
-        isDone = false;
-        showQR(nama, tentang, data);
-        startPoll();
-      } catch (e) {
-        alert(e.message);
-        btn.disabled = false;
-        btn.textContent = 'Buat kode pembayaran';
-      }
-    }
-
-    function showQR(nama, tentang, data) {
-      $('form-view').classList.add('hidden');
-      $('qr-view').classList.remove('hidden');
-      $('success-view').classList.add('hidden');
-      $('disp-nama').textContent = nama;
-      $('disp-tentang').textContent = tentang;
-      $('disp-nominal').textContent = fmt(data.nominal);
-      $('disp-sc').textContent = '+Rp\u00a0' + data.surcharge;
-      $('disp-total').textContent = fmt(data.totalBayar);
-      $('qr-img').src = data.qrisDataUrl;
-      setStatus('pending');
-    }
-
-    function startPoll() {
-      stopPoll();
-      setTimeout(() => { if (!isDone) checkPayment(false); }, 3000);
-      pollTimer = setInterval(() => { if (!isDone) checkPayment(false); }, 5000);
-    }
-    function stopPoll() { clearInterval(pollTimer); }
-
-    async function manualCheck() {
-      if (!isDone && !isChecking) await checkPayment(true);
-    }
-
-    async function checkPayment(manual) {
-      if (!sessionId || isDone || isChecking) return;
-      isChecking = true;
-      const btn = $('check-btn');
-      if (manual) {
-        btn.disabled = true;
-        btn.textContent = 'Mengecek...';
-        setStatus('checking', 'Mengecek transaksi ke server...');
-      }
-      try {
-        const res = await fetch('/api/check-payment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          if (manual) setStatus('error', data.error || 'Error ' + res.status);
-          return;
-        }
-        if (data.found) {
-          isDone = true;
-          stopPoll();
-          showSuccess(data.session);
-        } else if (data.timedOut) {
-          isDone = true;
-          stopPoll();
-          setStatus('timeout', 'Waktu pembayaran habis.');
-          btn.style.display = 'none';
-        } else if (manual) {
-          setStatus('error', 'Belum ditemukan. Pastikan bayar ' + fmt(data.looking_for) + '.');
-          setTimeout(() => { if (!isDone) setStatus('pending'); }, 3500);
-        }
-      } catch (e) {
-        if (manual) setStatus('error', 'Koneksi gagal. Coba lagi.');
-      } finally {
-        isChecking = false;
-        btn.disabled = false;
-        if (btn.style.display !== 'none') btn.textContent = 'Cek pembayaran sekarang';
-      }
-    }
-
-    function showSuccess(data) {
-      $('qr-view').classList.add('hidden');
-      $('success-view').classList.remove('hidden');
-      $('res-nominal').textContent = fmt(data.nominal);
-      $('res-sc').textContent = '+Rp\u00a0' + (data.surcharge || 0);
-      $('res-total').textContent = fmt(data.totalBayar);
-      $('res-tentang').textContent = data.tentang || '-';
-      $('res-issuer').textContent = data.issuer || '-';
-      $('res-txid').textContent = data.txId || '-';
-      $('res-waktu').textContent = data.waktu || '-';
-    }
-
-    function resetForm() {
-      stopPoll();
-      sessionId = null;
-      isDone = false;
-      isChecking = false;
-      $('form-view').classList.remove('hidden');
-      $('qr-view').classList.add('hidden');
-      $('success-view').classList.add('hidden');
-      const btn = $('pay-btn');
-      btn.disabled = false;
-      btn.textContent = 'Buat kode pembayaran';
-      $('nama').value = '';
-      $('tentang').value = '';
-      $('nominal').value = '';
-      $('check-btn').style.display = '';
-    }
-
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !$('form-view').classList.contains('hidden')) submitPayment();
-    });
-  </script>
-</body>
-</html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Toko</title>
+<style>
+:root{--ac:#7c3aed;--ac2:#4f46e5;--ink:#111827;--mu:#6b7280;--ln:#e5e7eb;--bg:#f7f7fb}
+*{box-sizing:border-box}body{margin:0;font-family:"Plus Jakarta Sans",Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+button,input,textarea{font:inherit}button{cursor:pointer;border:0}
+header{position:sticky;top:0;z-index:5;background:#fffc;backdrop-filter:blur(10px);border-bottom:1px solid var(--ln);padding:12px 20px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;color:var(--ac);max-width:1000px;margin:0 auto}.logo i{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--ac),#06b6d4)}
+main{max-width:1000px;margin:0 auto;padding:0 16px 60px}
+.hero{text-align:center;padding:34px 0 18px}.pill{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--ac);background:#fff;border:1px solid var(--ln);border-radius:99px;padding:7px 14px}
+.hero h1{font-size:clamp(28px,6vw,44px);line-height:1.12;margin:16px 0 10px;letter-spacing:-.02em}.hero h1 span{background:linear-gradient(90deg,var(--ac2),var(--ac));-webkit-background-clip:text;color:transparent}.hero p{color:var(--mu);margin:0 auto;max-width:520px}
+.box{background:#fff;border:1px solid var(--ln);border-radius:20px;padding:14px;box-shadow:0 8px 30px #4f46e50d;margin:20px 0}
+.in{width:100%;border:1px solid var(--ln);border-radius:14px;padding:13px 14px;background:#fff;outline:0}.in:focus{border-color:var(--ac);box-shadow:0 0 0 3px #7c3aed22}
+.row{display:flex;gap:10px;margin-top:10px}.btn{background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;font-weight:800;border-radius:14px;padding:13px 20px;box-shadow:0 8px 20px #7c3aed40;text-decoration:none;display:inline-block;text-align:center}.btn.ghost{background:#fff;color:var(--mu);box-shadow:none;border:1px solid var(--ln)}
+.chips{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px}.chip{white-space:nowrap;background:#fff;border:1px solid var(--ln);border-radius:14px;padding:11px 18px;font-weight:700;color:var(--mu)}.chip.on{background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;border-color:transparent;box-shadow:0 8px 20px #7c3aed40}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}@media(min-width:700px){.grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px}}
+.pc{background:#fff;border:1px solid var(--ln);border-radius:22px;padding:12px;text-align:center;box-shadow:0 6px 20px #11182708;transition:.15s}.pc:hover:not(:disabled){transform:translateY(-3px);box-shadow:0 14px 30px #7c3aed1f}.pc:disabled{opacity:.55;cursor:not-allowed}
+.ic{position:relative;background:#f3f4f8;border-radius:16px;aspect-ratio:1;display:grid;place-items:center;margin-bottom:12px;overflow:hidden}.ic img{width:62%;height:62%;object-fit:contain;border-radius:14px}.ic b{font-size:44px;color:var(--ac)}
+.bd{position:absolute;top:8px;right:8px;font-size:10px;font-weight:800;border-radius:7px;padding:4px 8px;background:#fee2e2;color:#dc2626}.bd.AUTO{background:#dcfce7;color:#16a34a}.bd.NEW{background:#dbeafe;color:#2563eb}
+.cat{font-size:11px;font-weight:800;color:var(--ac);letter-spacing:.08em;text-transform:uppercase}.nm{font-weight:800;margin:3px 0;font-size:15px}.sub{font-size:12px;color:var(--mu);background:#f7f7fb;border-radius:8px;padding:6px;margin:8px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--mu)}.pr b{color:var(--ac);font-size:15px}
+.ov{position:fixed;inset:0;background:#111827a6;display:none;align-items:center;justify-content:center;padding:16px;z-index:20;backdrop-filter:blur(3px)}.ov.on{display:flex}
+.md{background:#fff;border-radius:28px;width:100%;max-width:460px;max-height:92vh;overflow:auto;padding:22px}.md h3{margin:0 0 16px;font-size:20px}.x{float:right;background:#f3f4f6;border-radius:50%;width:34px;height:34px;color:var(--mu);font-size:18px}
+.it{background:#f7f7fb;border:1px solid var(--ln);border-radius:18px;padding:16px}.it small,.lb{display:block;font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--mu);text-transform:uppercase;margin:16px 0 8px}.it small{margin:0 0 4px}.it h4{margin:0 0 8px;font-size:18px}.it p{margin:0 0 12px;border-left:3px solid var(--ac);padding-left:12px;color:var(--mu);font-size:13px;white-space:pre-wrap}
+.hg{display:flex;justify-content:space-between;border-top:1px dashed var(--ln);padding-top:12px;font-weight:800;font-size:12px;color:var(--mu);letter-spacing:.06em}.hg b{color:var(--ac);font-size:16px}
+.qty{display:flex;border:1px solid var(--ln);border-radius:14px;overflow:hidden}.qty button{width:52px;background:#f7f7fb;font-size:20px;font-weight:800;color:var(--mu)}.qty input{flex:1;text-align:center;border:0;font-weight:800;font-size:18px;outline:0;min-width:0}
+.pm{display:flex;align-items:center;gap:12px;border:1px solid #c4b5fd;background:#f5f3ff;border-radius:16px;padding:12px}.pm i{width:44px;height:44px;border-radius:12px;background:#fff;display:grid;place-items:center;font-style:normal;font-weight:900;color:var(--ac)}.pm span{display:block;font-size:12px;color:var(--mu)}.pm em{margin-left:auto;background:var(--ac);color:#fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-style:normal}
+.help{font-size:12px;color:var(--mu);margin:6px 2px 0}.tot{display:flex;justify-content:space-between;align-items:center;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:16px;padding:16px;margin:18px 0;font-weight:800;color:#047857;font-size:13px;letter-spacing:.06em}.tot b{font-size:26px}
+.err{color:#dc2626;font-size:13px;min-height:18px;margin:8px 0}.two{display:grid;grid-template-columns:1fr 1.2fr;gap:12px}
+.card{background:#fff;border:1px solid var(--ln);border-radius:24px;padding:22px;margin-top:22px;box-shadow:0 8px 30px #4f46e50d}.st{display:inline-block;border-radius:99px;padding:6px 14px;font-weight:800;font-size:12px}.st.pending{background:#fef3c7;color:#b45309}.st.done{background:#dcfce7;color:#15803d}.st.paid{background:#dbeafe;color:#1d4ed8}.st.expire{background:#fee2e2;color:#b91c1c}
+.qr{display:block;margin:16px auto;width:min(280px,80%);border-radius:16px;border:1px solid var(--ln);padding:8px;background:#fff}.mu{color:var(--mu)}.kv{display:flex;align-items:center;gap:10px;border:1px solid var(--ln);background:#f7f7fb;border-radius:14px;padding:10px 12px;margin-top:8px}.kv small{width:74px;font-weight:800;color:var(--mu);font-size:11px;text-transform:uppercase}.kv code{flex:1;word-break:break-all;font-size:14px}.kv button{background:#fff;border:1px solid var(--ln);border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700;color:var(--ac)}
+</style></head><body>
+<header><div class="logo"><i></i><span id="nm"></span></div></header>
+<main id="app"></main>
+<div class="ov" id="ov"><div class="md" id="md"></div></div>
+<script>
+const $=s=>document.querySelector(s),E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),rp=n=>'Rp '+Number(n).toLocaleString('id-ID');
+async function api(p,b){const r=await fetch('/api/'+p,b===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Terjadi kesalahan');return j}
+let P=[],cat='Semua',q='';
+const icon=p=>p.icon?'<img src="'+E(p.icon)+'" alt="">':'<b>'+E((p.name[0]||'?').toUpperCase())+'</b>';
+function home(){
+  $('#app').innerHTML='<section class="hero"><span class="pill">AKUN PREMIUM OTOMATIS</span><h1>Akses Apps Premium,<br><span>Harga Bikin Senyum.</span></h1><p>Bayar pakai QRIS, akun langsung dikirim otomatis ke WhatsApp kamu. Cepat dan bergaransi.</p></section><div class="box"><input class="in" id="sq" placeholder="Cari layanan (cth: Spotify)..."><div class="row"><input class="in" id="iv" placeholder="Cek ID Invoice..."><button class="btn" id="ck">Cek &rarr;</button></div></div><div class="chips" id="ch"></div><div class="grid" id="gd"></div>';
+  $('#sq').oninput=e=>{q=e.target.value.toLowerCase();list()};
+  $('#ck').onclick=()=>{const v=$('#iv').value.trim();if(v)location.href='?inv='+encodeURIComponent(v.toUpperCase())};
+  list();
+}
+function list(){
+  const cs=['Semua',...new Set(P.map(p=>p.category).filter(Boolean))];
+  $('#ch').innerHTML=cs.map(c=>'<button class="chip '+(c==cat?'on':'')+'" data-c="'+E(c)+'">'+E(c)+'</button>').join('');
+  document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{cat=b.dataset.c;list()});
+  const v=P.filter(p=>(cat=='Semua'||p.category==cat)&&(p.name+' '+p.desc).toLowerCase().includes(q));
+  $('#gd').innerHTML=v.map(p=>'<button class="pc" data-i="'+p.id+'" '+(p.stock?'':'disabled')+'><div class="ic">'+(p.badge&&p.stock?'<span class="bd '+p.badge+'">'+p.badge+'</span>':'')+icon(p)+'</div><div class="cat">'+E(p.category||'Produk')+'</div><div class="nm">'+E(p.name)+'</div><div class="sub">'+E((p.desc||'').split('\n')[0]||'Akun premium')+'</div><div class="pr"><b>'+rp(p.price)+'</b><span>'+(p.stock?'Stok '+p.stock:'Habis')+'</span></div></button>').join('')||'<p class="mu">Produk tidak ditemukan.</p>';
+  document.querySelectorAll('.pc').forEach(b=>b.onclick=()=>buy(P.find(p=>p.id==b.dataset.i)));
+}
+function buy(p){
+  let n=1;const max=Math.min(10,p.stock);
+  $('#md').innerHTML='<button class="x" id="cl">&times;</button><h3>Detail Pesanan</h3><div class="it"><small>Item dipilih</small><h4>'+E(p.name)+'</h4>'+(p.desc?'<p>'+E(p.desc)+'</p>':'')+'<div class="hg"><span>HARGA SATUAN</span><b>'+rp(p.price)+'</b></div></div><span class="lb">Jumlah beli</span><div class="qty"><button id="mn">&minus;</button><input id="qn" value="1" inputmode="numeric"><button id="pl">+</button></div><span class="lb">Metode pembayaran</span><div class="pm"><i>QR</i><div><b>QRIS (Otomatis)</b><span>Scan via DANA, GoPay, OVO, dll.</span></div><em>&#10003;</em></div><span class="lb">Nomor WhatsApp aktif</span><input class="in" id="wa" type="tel" inputmode="tel" placeholder="0812xxxxxxxx"><div class="help">Invoice dan akun akan dikirim ke WhatsApp ini.</div><div class="tot"><span>TOTAL BAYAR</span><b id="tt"></b></div><div class="err" id="er"></div><div class="two"><button class="btn ghost" id="bt">BATAL</button><button class="btn" id="by">BELI &rarr;</button></div>';
+  const set=v=>{n=Math.max(1,Math.min(max,parseInt(v)||1));$('#qn').value=n;$('#tt').textContent=rp(n*p.price)};set(1);
+  $('#mn').onclick=()=>set(n-1);$('#pl').onclick=()=>set(n+1);$('#qn').onchange=e=>set(e.target.value);
+  const close=()=>$('#ov').classList.remove('on');$('#cl').onclick=$('#bt').onclick=close;
+  $('#by').onclick=async()=>{$('#by').disabled=true;$('#er').textContent='';try{const r=await api('order',{pid:p.id,qty:n,wa:$('#wa').value});location.href='?inv='+r.id}catch(e){$('#er').textContent=e.message;$('#by').disabled=false}};
+  $('#ov').classList.add('on');
+}
+const kv=(l,v)=>'<div class="kv"><small>'+l+'</small><code>'+E(v)+'</code><button data-cp="'+E(v)+'">Salin</button></div>';
+function draw(o){
+  const S={pending:'Menunggu pembayaran',paid:'Dibayar, diproses',done:'Selesai',expire:'Kedaluwarsa'};
+  let h='<span class="st '+o.status+'">'+S[o.status]+'</span><h2 style="margin:14px 0 4px">'+E(o.pname)+' x'+o.qty+'</h2><div class="mu">Invoice <b>'+o.id+'</b> &middot; WhatsApp '+E(o.wa)+'</div>';
+  if(o.status=='pending')h+=(o.qrUrl?'<img class="qr" src="'+E(o.qrUrl)+'" alt="QRIS">':'')+'<div style="text-align:center"><div class="mu">Total bayar</div><div style="font-size:30px;font-weight:800;color:var(--ac)">'+rp(o.total)+'</div><p class="mu">Scan dengan aplikasi bank atau e-wallet. Halaman ini otomatis berubah setelah pembayaran terdeteksi.'+(o.expiry?'<br>Batas bayar: '+E(o.expiry):'')+'</p><a class="btn" href="'+E(o.payUrl)+'" target="_blank" rel="noopener">Buka halaman pembayaran</a></div>';
+  if(o.status=='paid')h+='<p>'+E(o.note||'Pembayaran diterima, akun sedang disiapkan...')+'</p>';
+  if(o.status=='expire')h+='<p class="mu">Waktu pembayaran habis. Silakan buat pesanan baru.</p>';
+  if(o.status=='done'){h+='<p style="color:#15803d;font-weight:700">Pembayaran berhasil. Berikut akun kamu (salinan juga dikirim ke WhatsApp):</p>';
+    (o.items||[]).forEach((d,i)=>{h+='<div style="margin-top:14px">'+(o.qty>1?'<b>Akun '+(i+1)+'</b>':'')+(d.link?kv('Link',d.link)+'<a class="btn" style="margin-top:10px" href="'+E(d.link)+'" target="_blank" rel="noopener">Buka link</a>':kv('Email',d.email)+kv('Password',d.password)+(d.pin?kv('PIN',d.pin):'')+(d.profile?kv('Profile',d.profile):'')+(d.a2f?kv('A2F',d.a2f):''))+'</div>'});}
+  h+='<p style="margin-top:22px"><a href="/" class="mu">&larr; Kembali ke toko</a></p>';
+  $('#iv2').innerHTML=h;
+  document.querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>{navigator.clipboard.writeText(b.dataset.cp);b.textContent='Tersalin'});
+}
+async function invoice(id){
+  $('#app').innerHTML='<div class="card" id="iv2">Memuat...</div>';
+  const tick=async()=>{let o;try{o=await api('order?id='+encodeURIComponent(id))}catch(e){$('#iv2').innerHTML='<h2>Invoice tidak ditemukan</h2><p class="mu">'+E(e.message)+'</p><a class="btn" href="/">Kembali ke toko</a>';return}
+    draw(o);if(o.status=='pending'||o.status=='paid')setTimeout(tick,4000)};tick();
+}
+(async()=>{
+  const inv=new URLSearchParams(location.search).get('inv');
+  try{const c=await api('config');$('#nm').textContent=c.name;document.title=c.name}catch{}
+  if(inv)return invoice(inv);
+  try{P=await api('products')}catch(e){}
+  home();
+})();
+$('#ov').onclick=e=>{if(e.target.id=='ov')$('#ov').classList.remove('on')};
+</script></body></html>

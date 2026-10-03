@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Admin</title>
+<style>
+:root{--ac:#7c3aed;--ac2:#4f46e5;--ink:#111827;--mu:#6b7280;--ln:#e5e7eb;--bg:#f7f7fb}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}button,input,textarea,select{font:inherit}button{cursor:pointer;border:0}
+header{background:#fff;border-bottom:1px solid var(--ln);padding:12px 18px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:5}header b{font-size:18px;color:var(--ac);flex:1}
+nav{display:flex;gap:6px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--ln);overflow-x:auto}nav button{background:none;padding:10px 16px;border-radius:10px;font-weight:700;color:var(--mu);white-space:nowrap}nav button.on{background:#f5f3ff;color:var(--ac)}
+main{max-width:1000px;margin:0 auto;padding:16px}.card{background:#fff;border:1px solid var(--ln);border-radius:16px;padding:18px;margin-bottom:16px}h2{margin:0 0 12px;font-size:18px}
+label{display:block;font-size:12px;font-weight:700;color:var(--mu);margin:12px 0 5px}.in{width:100%;border:1px solid var(--ln);border-radius:10px;padding:11px 12px;background:#fff;outline:0}.in:focus{border-color:var(--ac)}
+.btn{background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;font-weight:700;border-radius:10px;padding:11px 18px;margin-top:14px}.btn.g{background:#f3f4f6;color:var(--ink)}.btn.sm{padding:6px 12px;margin:0;font-size:12px;border-radius:8px}.btn.r{background:#fee2e2;color:#b91c1c}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:560px){.g2{grid-template-columns:1fr}}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mu);text-align:left;padding:8px;border-bottom:1px solid var(--ln)}td{padding:10px 8px;border-bottom:1px solid #f1f1f5;vertical-align:middle}
+.st{display:inline-block;border-radius:99px;padding:3px 10px;font-weight:700;font-size:11px}.pending{background:#fef3c7;color:#b45309}.done{background:#dcfce7;color:#15803d}.paid{background:#dbeafe;color:#1d4ed8}.expire{background:#fee2e2;color:#b91c1c}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}.stats .card{margin:0}.stats small{color:var(--mu);font-size:12px}.stats b{display:block;font-size:22px;margin-top:4px}
+.thumb{width:40px;height:40px;border-radius:10px;object-fit:contain;background:#f3f4f8}.msg{font-size:13px;margin-top:10px;color:#dc2626}.msg.ok{color:#15803d}.mu{color:var(--mu)}code{font-size:12px;word-break:break-all}
+.login{max-width:380px;margin:12vh auto}
+</style></head><body><div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),rp=n=>'Rp '+Number(n).toLocaleString('id-ID');
+const dt=s=>s?new Date(s).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-';
+async function api(p,b){const r=await fetch('/api/'+p,b===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({}));if(r.status==401&&p!='admin/login')throw Object.assign(new Error('401'),{auth:1});if(!r.ok)throw new Error(j.error||'Gagal');return j}
+const msg=(t,ok,id='m')=>{const m=$('#'+id);if(m){m.className='msg'+(ok?' ok':'');m.textContent=t}};
+let D,tab='tx',edit=null,spid='';
+function login(){
+  $('#app').innerHTML='<div class="card login"><h2>Masuk Admin</h2><label>Username</label><input class="in" id="u" autocapitalize="none"><label>Password</label><input class="in" id="p" type="password"><div id="m" class="msg"></div><button class="btn" id="go" style="width:100%">Masuk</button></div>';
+  const go=async()=>{try{await api('admin/login',{username:$('#u').value,password:$('#p').value});start()}catch(e){msg(e.message)}};
+  $('#go').onclick=go;$('#p').onkeydown=e=>{if(e.key=='Enter')go()};
+}
+async function start(){
+  try{D=await api('admin/data')}catch(e){return e.auth?login():alert(e.message)}
+  $('#app').innerHTML='<header><b>Admin Toko</b><a href="/" target="_blank" class="mu">Lihat toko</a><button class="btn sm g" id="lo">Keluar</button></header><nav>'+[['tx','Transaksi'],['pr','Produk'],['st','Stok']].map(t=>'<button data-t="'+t[0]+'" class="'+(t[0]==tab?'on':'')+'">'+t[1]+'</button>').join('')+'</nav><main id="v"></main>';
+  $('#lo').onclick=async()=>{await api('admin/logout',{});login()};
+  document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;edit=null;start()});
+  ({tx,pr,st})[tab]();
+}
+const SL={pending:'Menunggu bayar',paid:'Perlu diproses',done:'Selesai',expire:'Kedaluwarsa'};
+function tx(){
+  const o=D.orders,done=o.filter(x=>x.status=='done');
+  $('#v').innerHTML='<div class="stats"><div class="card"><small>Omzet (selesai)</small><b>'+rp(done.reduce((a,x)=>a+x.amount,0))+'</b></div><div class="card"><small>Transaksi selesai</small><b>'+done.length+'</b></div><div class="card"><small>Menunggu bayar</small><b>'+o.filter(x=>x.status=='pending').length+'</b></div><div class="card"><small>Perlu diproses</small><b>'+o.filter(x=>x.status=='paid').length+'</b></div></div><div class="card"><h2>Kelola Transaksi</h2><div class="tw"><table><tr><th>Invoice</th><th>Waktu</th><th>Produk</th><th>Total</th><th>WhatsApp</th><th>Status</th><th></th></tr>'+(o.map(x=>'<tr><td><code>'+x.id+'</code></td><td>'+dt(x.createdAt)+'</td><td>'+E(x.pname)+' x'+x.qty+'</td><td>'+rp(x.total)+'</td><td>'+E(x.wa)+'</td><td><span class="st '+x.status+'">'+SL[x.status]+'</span></td><td>'+(x.status=='pending'?'<button class="btn sm g" data-o="'+x.id+'" data-a="check">Cek bayar</button>':x.status=='paid'?'<button class="btn sm" data-o="'+x.id+'" data-a="redeliver">Kirim akun</button>':'')+'</td></tr>').join('')||'<tr><td colspan="7" class="mu">Belum ada transaksi.</td></tr>')+'</table></div></div>';
+  document.querySelectorAll('[data-o]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api('admin/order',{id:b.dataset.o,action:b.dataset.a});start()}catch(e){alert(e.message);b.disabled=false}});
+}
+const shrink=f=>new Promise((ok,no)=>{const im=new Image();im.onload=()=>{const s=Math.min(1,192/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*s));c.height=Math.max(1,Math.round(im.height*s));c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/png'))};im.onerror=()=>no(new Error('File gambar tidak valid'));im.src=URL.createObjectURL(f)});
+function pr(){
+  const p=edit||{type:'akun',active:true,badge:''},cats=[...new Set(D.products.map(x=>x.category).filter(Boolean))];
+  $('#v').innerHTML='<div class="card"><h2>'+(edit?'Edit produk':'Tambah produk')+'</h2><div class="g2"><div><label>Nama produk</label><input class="in" id="n" value="'+E(p.name||'')+'" placeholder="Alight Motion Pro 1 Tahun"></div><div><label>Harga (Rp)</label><input class="in" id="h" type="number" value="'+(p.price||'')+'"></div></div><label>Deskripsi</label><textarea class="in" id="d" rows="3">'+E(p.desc||'')+'</textarea><div class="g2"><div><label>Jenis stok</label><select class="in" id="t"><option value="akun" '+(p.type=='akun'?'selected':'')+'>Akun (email, password, pin, dll)</option><option value="link" '+(p.type=='link'?'selected':'')+'>Link saja</option></select></div><div><label>Kategori</label><input class="in" id="c" list="cl" value="'+E(p.category||'')+'" placeholder="Design & Edit"><datalist id="cl">'+cats.map(c=>'<option value="'+E(c)+'">').join('')+'</datalist></div></div><div class="g2"><div><label>Label</label><select class="in" id="b">'+['','HOT','AUTO','NEW'].map(x=>'<option value="'+x+'" '+(p.badge==x?'selected':'')+'>'+(x||'Tanpa label')+'</option>').join('')+'</select></div><div><label>Status</label><select class="in" id="a"><option value="1" '+(p.active!==false?'selected':'')+'>Tampil di toko</option><option value="0" '+(p.active===false?'selected':'')+'>Sembunyikan</option></select></div></div><label>Icon produk (upload gambar atau isi URL https)</label><div style="display:flex;gap:12px;align-items:center"><img class="thumb" id="pv" src="'+E(p.icon||'')+'" '+(p.icon?'':'style="visibility:hidden"')+'><input type="file" id="f" accept="image/png,image/jpeg,image/webp"></div><input class="in" id="i" style="margin-top:8px" value="'+(p.icon&&!p.icon.startsWith('data:')?E(p.icon):'')+'" placeholder="https://.../logo.png"><div id="m" class="msg"></div><button class="btn" id="sv">Simpan</button> '+(edit?'<button class="btn g" id="cn">Batal</button>':'')+'</div><div class="card"><h2>Daftar produk</h2><div class="tw"><table><tr><th></th><th>Produk</th><th>Harga</th><th>Stok</th><th>Status</th><th></th></tr>'+(D.products.map(x=>'<tr><td>'+(x.icon?'<img class="thumb" src="'+E(x.icon)+'">':'')+'</td><td><b>'+E(x.name)+'</b><br><span class="mu">'+E(x.category||'-')+' &middot; '+(x.type=='link'?'link':'akun')+'</span></td><td>'+rp(x.price)+'</td><td>'+x.stock+'</td><td>'+(x.active?'Tampil':'Tersembunyi')+'</td><td><button class="btn sm g" data-e="'+x.id+'">Edit</button> <button class="btn sm r" data-x="'+x.id+'">Hapus</button></td></tr>').join('')||'<tr><td colspan="6" class="mu">Belum ada produk.</td></tr>')+'</table></div></div>';
+  let icon=p.icon||'';
+  $('#f').onchange=async e=>{try{icon=await shrink(e.target.files[0]);$('#i').value='';$('#pv').src=icon;$('#pv').style.visibility='visible'}catch(x){msg(x.message)}};
+  $('#sv').onclick=async()=>{try{await api('admin/product',{id:edit&&edit.id,name:$('#n').value,price:$('#h').value,desc:$('#d').value,type:$('#t').value,category:$('#c').value,badge:$('#b').value,active:$('#a').value=='1',icon:$('#i').value.trim()||icon});edit=null;start()}catch(e){msg(e.message)}};
+  if($('#cn'))$('#cn').onclick=()=>{edit=null;pr()};
+  document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>{edit=D.products.find(x=>x.id==b.dataset.e);pr();scrollTo(0,0)});
+  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=async()=>{if(confirm('Hapus produk ini? Stok yang belum terjual ikut tidak terpakai.')){await api('admin/product/delete',{id:b.dataset.x});start()}});
+}
+async function st(){
+  if(!spid||!D.products.find(x=>x.id==spid))spid=(D.products[0]||{}).id||'';const p=D.products.find(x=>x.id==spid);
+  if(!p)return $('#v').innerHTML='<div class="card">Tambahkan produk dulu di menu Produk.</div>';
+  const items=await api('admin/stock?pid='+spid);
+  $('#v').innerHTML='<div class="card"><h2>Stok produk</h2><label>Pilih produk</label><select class="in" id="sp">'+D.products.map(x=>'<option value="'+x.id+'" '+(x.id==spid?'selected':'')+'>'+E(x.name)+' (tersedia '+x.stock+')</option>').join('')+'</select><label>Tambah stok, satu baris per akun</label><textarea class="in" id="ln" rows="6" placeholder="'+(p.type=='link'?'https://link-satu\nhttps://link-dua':'email@gmail.com|password|pin|profile|a2f\nemail2@gmail.com|password2')+'"></textarea><p class="mu" style="font-size:12px;margin:6px 0 0">'+(p.type=='link'?'Produk jenis link: satu link per baris.':'Format: <code>email|password|pin|profile|a2f</code>. Pin, profile, dan a2f boleh dikosongkan atau dihilangkan.')+'</p><div id="m" class="msg"></div><button class="btn" id="ad">Tambah stok</button></div><div class="card"><h2>Isi stok (terbaru)</h2><div class="tw"><table><tr><th>Data</th><th>Status</th><th></th></tr>'+(items.map(x=>'<tr><td><code>'+E(x.data.link||[x.data.email,x.data.password,x.data.pin,x.data.profile,x.data.a2f].filter(Boolean).join(' | '))+'</code></td><td>'+(x.sold?'<span class="st done">Terjual '+E(x.order||'')+'</span>':'<span class="st paid">Tersedia</span>')+'</td><td>'+(x.sold?'':'<button class="btn sm r" data-s="'+x.id+'">Hapus</button>')+'</td></tr>').join('')||'<tr><td colspan="3" class="mu">Belum ada stok.</td></tr>')+'</table></div></div>';
+  $('#sp').onchange=e=>{spid=e.target.value;st()};
+  $('#ad').onclick=async()=>{try{const r=await api('admin/stock/add',{pid:spid,lines:$('#ln').value});D=await api('admin/data');await st();msg(r.added+' stok ditambahkan.',1)}catch(e){msg(e.message)}};
+  document.querySelectorAll('[data-s]').forEach(b=>b.onclick=async()=>{try{await api('admin/stock/delete',{id:b.dataset.s});D=await api('admin/data');st()}catch(e){alert(e.message)}});
+}
+start();
+</script></body></html>
