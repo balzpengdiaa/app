@@ -1,20 +1,20 @@
 # ===== Wajib =====
 SITE_NAME=Premium Store
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=ganti_dengan_password_kuat
-AUTH_SECRET=string_acak_panjang          # buat: openssl rand -hex 32
-PAY_KEY=api_key_dari_dashboard_saya_pay  # menu API di Saya Pay
+ADMIN_PASSWORD=admin10
+AUTH_SECRET=0e29e561-c7c5-4977-a305-e901a35b3576       # buat: openssl rand -hex 32
+PAY_KEY=2e5ce135-0181-47c5-bd06-5fd00bfd3ea8  # menu API di Saya Pay
 
 # ===== Database (WAJIB di Vercel; di VPS/cPanel boleh kosong -> file data.json) =====
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
 
 # ===== Notifikasi WhatsApp (Fonnte) =====
-FONNTE_TOKEN=
-ADMIN_WA=08xxxxxxxxxx                    # nomor admin penerima notifikasi (boleh banyak, pisah koma)
+FONNTE_TOKEN=qXcPd71zz7BRnpAc9zNv
+ADMIN_WA=088983255273                    # nomor admin penerima notifikasi (boleh banyak, pisah koma)
 
 # ===== Opsional =====
-# PAY_BASE=https://jaya-pay.vercel.app
+PAY_BASE=https://jaya-pay.vercel.app
 # PAY_CHANNEL=qris                       # qris (cair H+1) atau qrisfast
 # BASE_URL=https://domain-toko-kamu.com  # dipakai di link pada pesan WhatsApp
 # DEBUG_PAY=1                            # sementara: tampilkan alasan error dari Saya Pay
