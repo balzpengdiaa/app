@@ -5,7 +5,7 @@
 *{box-sizing:border-box}body{margin:0;font-family:"Plus Jakarta Sans",Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
 button,input,textarea{font:inherit}button{cursor:pointer;border:0}
 header{position:sticky;top:0;z-index:5;background:#fffc;backdrop-filter:blur(10px);border-bottom:1px solid var(--ln);padding:12px 20px}
-.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;color:var(--ac);max-width:1000px;margin:0 auto}.logo i{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--ac),#06b6d4)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;color:var(--ac);max-width:1000px;margin:0 auto}.logo img{width:34px;height:34px;border-radius:10px;object-fit:contain}.logo i{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--ac),#06b6d4)}
 main{max-width:1000px;margin:0 auto;padding:0 16px 60px}
 .hero{text-align:center;padding:34px 0 18px}.pill{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--ac);background:#fff;border:1px solid var(--ln);border-radius:99px;padding:7px 14px}
 .hero h1{font-size:clamp(28px,6vw,44px);line-height:1.12;margin:16px 0 10px;letter-spacing:-.02em}.hero h1 span{background:linear-gradient(90deg,var(--ac2),var(--ac));-webkit-background-clip:text;color:transparent}.hero p{color:var(--mu);margin:0 auto;max-width:520px}
@@ -30,7 +30,7 @@ main{max-width:1000px;margin:0 auto;padding:0 16px 60px}
 .card{background:#fff;border:1px solid var(--ln);border-radius:24px;padding:22px;margin-top:22px;box-shadow:0 8px 30px #4f46e50d}.st{display:inline-block;border-radius:99px;padding:6px 14px;font-weight:800;font-size:12px}.st.pending{background:#fef3c7;color:#b45309}.st.done{background:#dcfce7;color:#15803d}.st.paid{background:#dbeafe;color:#1d4ed8}.st.expire{background:#fee2e2;color:#b91c1c}
 .qr{display:block;margin:16px auto;width:min(280px,80%);border-radius:16px;border:1px solid var(--ln);padding:8px;background:#fff}.mu{color:var(--mu)}.kv{display:flex;align-items:center;gap:10px;border:1px solid var(--ln);background:#f7f7fb;border-radius:14px;padding:10px 12px;margin-top:8px}.kv small{width:74px;font-weight:800;color:var(--mu);font-size:11px;text-transform:uppercase}.kv code{flex:1;word-break:break-all;font-size:14px}.kv button{background:#fff;border:1px solid var(--ln);border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700;color:var(--ac)}
 </style></head><body>
-<header><div class="logo"><i></i><span id="nm"></span></div></header>
+<header><div class="logo"><i id="lg"></i><span id="nm"></span></div></header>
 <main id="app"></main>
 <div class="ov" id="ov"><div class="md" id="md"></div></div>
 <script>
@@ -53,19 +53,21 @@ function list(){
   document.querySelectorAll('.pc').forEach(b=>b.onclick=()=>buy(P.find(p=>p.id==b.dataset.i)));
 }
 function buy(p){
-  let n=1;const max=Math.min(10,p.stock);
-  $('#md').innerHTML='<button class="x" id="cl">&times;</button><h3>Detail Pesanan</h3><div class="it"><small>Item dipilih</small><h4>'+E(p.name)+'</h4>'+(p.desc?'<p>'+E(p.desc)+'</p>':'')+'<div class="hg"><span>HARGA SATUAN</span><b>'+rp(p.price)+'</b></div></div><span class="lb">Jumlah beli</span><div class="qty"><button id="mn">&minus;</button><input id="qn" value="1" inputmode="numeric"><button id="pl">+</button></div><span class="lb">Metode pembayaran</span><div class="pm"><i>QR</i><div><b>QRIS (Otomatis)</b><span>Scan via DANA, GoPay, OVO, dll.</span></div><em>&#10003;</em></div><span class="lb">Nomor WhatsApp aktif</span><input class="in" id="wa" type="tel" inputmode="tel" placeholder="0812xxxxxxxx"><div class="help">Invoice dan akun akan dikirim ke WhatsApp ini.</div><div class="tot"><span>TOTAL BAYAR</span><b id="tt"></b></div><div class="err" id="er"></div><div class="two"><button class="btn ghost" id="bt">BATAL</button><button class="btn" id="by">BELI &rarr;</button></div>';
-  const set=v=>{n=Math.max(1,Math.min(max,parseInt(v)||1));$('#qn').value=n;$('#tt').textContent=rp(n*p.price)};set(1);
-  $('#mn').onclick=()=>set(n-1);$('#pl').onclick=()=>set(n+1);$('#qn').onchange=e=>set(e.target.value);
+  let n=1,dc=0,vk='';const max=Math.min(10,p.stock);
+  $('#md').innerHTML='<button class="x" id="cl">&times;</button><h3>Detail Pesanan</h3><div class="it"><small>Item dipilih</small><h4>'+E(p.name)+'</h4>'+(p.desc?'<p>'+E(p.desc)+'</p>':'')+'<div class="hg"><span>HARGA SATUAN</span><b>'+rp(p.price)+'</b></div></div><span class="lb">Jumlah beli</span><div class="qty"><button id="mn">&minus;</button><input id="qn" value="1" inputmode="numeric"><button id="pl">+</button></div><span class="lb">Metode pembayaran</span><div class="pm"><i>QR</i><div><b>QRIS (Otomatis)</b><span>Scan via DANA, GoPay, OVO, dll.</span></div><em>&#10003;</em></div><span class="lb">Nomor WhatsApp aktif</span><input class="in" id="wa" type="tel" inputmode="tel" placeholder="0812xxxxxxxx"><div class="help">Invoice dan akun akan dikirim ke WhatsApp ini.</div><span class="lb">Kode voucher (opsional)</span><div class="row" style="margin:0"><input class="in" id="vc" placeholder="Masukkan kode" style="text-transform:uppercase"><button class="btn ghost" id="vb" type="button">Pakai</button></div><div class="help" id="vm"></div><div class="tot"><span>TOTAL BAYAR</span><b id="tt"></b></div><div class="err" id="er"></div><div class="two"><button class="btn ghost" id="bt">BATAL</button><button class="btn" id="by">BELI &rarr;</button></div>';
+  const set=v=>{n=Math.max(1,Math.min(max,parseInt(v)||1));$('#qn').value=n;$('#tt').textContent=rp(n*p.price-dc)};set(1);
+  const chk=async()=>{const c=$('#vc').value.trim();if(!c){dc=0;vk='';$('#vm').textContent='';return set(n)}try{const r=await api('voucher/check',{code:c,pid:p.id,qty:n});dc=r.discount;vk=r.code;$('#vm').style.color='#15803d';$('#vm').textContent='Voucher '+r.code+' dipakai, hemat '+rp(dc)}catch(e){dc=0;vk='';$('#vm').style.color='#dc2626';$('#vm').textContent=e.message}set(n)};
+  const sq=v=>{set(v);if(vk)chk()};$('#vb').onclick=chk;
+  $('#mn').onclick=()=>sq(n-1);$('#pl').onclick=()=>sq(n+1);$('#qn').onchange=e=>sq(e.target.value);
   const close=()=>$('#ov').classList.remove('on');$('#cl').onclick=$('#bt').onclick=close;
-  $('#by').onclick=async()=>{$('#by').disabled=true;$('#er').textContent='';try{const r=await api('order',{pid:p.id,qty:n,wa:$('#wa').value});location.href='?inv='+r.id}catch(e){$('#er').textContent=e.message;$('#by').disabled=false}};
+  $('#by').onclick=async()=>{$('#by').disabled=true;$('#er').textContent='';try{const r=await api('order',{pid:p.id,qty:n,wa:$('#wa').value,voucher:vk});location.href='?inv='+r.id}catch(e){$('#er').textContent=e.message;$('#by').disabled=false}};
   $('#ov').classList.add('on');
 }
 const kv=(l,v)=>'<div class="kv"><small>'+l+'</small><code>'+E(v)+'</code><button data-cp="'+E(v)+'">Salin</button></div>';
 function draw(o){
   const S={pending:'Menunggu pembayaran',paid:'Dibayar, diproses',done:'Selesai',expire:'Kedaluwarsa'};
   let h='<span class="st '+o.status+'">'+S[o.status]+'</span><h2 style="margin:14px 0 4px">'+E(o.pname)+' x'+o.qty+'</h2><div class="mu">Invoice <b>'+o.id+'</b> &middot; WhatsApp '+E(o.wa)+'</div>';
-  if(o.status=='pending')h+=(o.qrUrl?'<img class="qr" src="'+E(o.qrUrl)+'" alt="QRIS">':'')+'<div style="text-align:center"><div class="mu">Total bayar</div><div style="font-size:30px;font-weight:800;color:var(--ac)">'+rp(o.total)+'</div><p class="mu">Scan dengan aplikasi bank atau e-wallet. Halaman ini otomatis berubah setelah pembayaran terdeteksi.'+(o.expiry?'<br>Batas bayar: '+E(o.expiry):'')+'</p><a class="btn" href="'+E(o.payUrl)+'" target="_blank" rel="noopener">Buka halaman pembayaran</a></div>';
+  if(o.status=='pending')h+=(o.qrUrl?'<img class="qr" src="'+E(o.qrUrl)+'" alt="QRIS">':'')+'<div style="text-align:center">'+(o.discount?'<div class="mu">Diskon voucher '+E(o.voucher)+': -'+rp(o.discount)+'</div>':'')+'<div class="mu">Total bayar</div><div style="font-size:30px;font-weight:800;color:var(--ac)">'+rp(o.total)+'</div><p class="mu">Scan dengan aplikasi bank atau e-wallet. Halaman ini otomatis berubah setelah pembayaran terdeteksi.'+(o.expiry?'<br>Batas bayar: '+E(o.expiry):'')+'</p><a class="btn" href="'+E(o.payUrl)+'" target="_blank" rel="noopener">Buka halaman pembayaran</a></div>';
   if(o.status=='paid')h+='<p>'+E(o.note||'Pembayaran diterima, akun sedang disiapkan...')+'</p>';
   if(o.status=='expire')h+='<p class="mu">Waktu pembayaran habis. Silakan buat pesanan baru.</p>';
   if(o.status=='done'){h+='<p style="color:#15803d;font-weight:700">Pembayaran berhasil. Berikut akun kamu (salinan juga dikirim ke WhatsApp):</p>';
@@ -81,7 +83,7 @@ async function invoice(id){
 }
 (async()=>{
   const inv=new URLSearchParams(location.search).get('inv');
-  try{const c=await api('config');$('#nm').textContent=c.name;document.title=c.name}catch{}
+  try{const c=await api('config');$('#nm').textContent=c.name;document.title=c.name;if(c.logo){$('#lg').outerHTML='<img src="'+E(c.logo)+'" alt="">';const l=document.querySelector('link[rel=icon]')||document.head.appendChild(Object.assign(document.createElement('link'),{rel:'icon'}));l.href=c.logo}}catch{}
   if(inv)return invoice(inv);
   try{P=await api('products')}catch(e){}
   home();
