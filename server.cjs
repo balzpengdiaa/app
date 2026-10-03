@@ -21,6 +21,8 @@ async function db(...c) {
     case 'GET': return M[k] ?? null;
     case 'SET': M[k] = String(a[0]); save(); return 'OK';
     case 'SETNX': if (k in M) return 0; M[k] = String(a[0]); save(); return 1;
+    case 'INCR': M[k] = (Number(M[k]) || 0) + 1; save(); return M[k];
+    case 'DECR': M[k] = (Number(M[k]) || 0) - 1; save(); return M[k];
     case 'DEL': delete M[k]; save(); return 1;
     case 'MGET': return c.slice(1).map(x => M[x] ?? null);
     case 'MSET': for (let i = 1; i < c.length; i += 2) M[c[i]] = String(c[i + 1]); save(); return 'OK';
@@ -68,7 +70,7 @@ async function pay(p, opt) {
 }
 
 // ---------- Order ----------
-const pubOrder = o => ({ id: o.id, pname: o.pname, qty: o.qty, total: o.total, status: o.status, note: o.note || null, wa: mask(o.wa), payUrl: o.payUrl, qrUrl: o.qrUrl, expiry: o.expiry, createdAt: o.createdAt, items: o.status === 'done' ? o.items : undefined });
+const pubOrder = o => ({ id: o.id, pname: o.pname, qty: o.qty, total: o.total, status: o.status, note: o.note || null, discount: o.discount || 0, voucher: o.voucher || null, wa: mask(o.wa), payUrl: o.payUrl, qrUrl: o.qrUrl, expiry: o.expiry, createdAt: o.createdAt, items: o.status === 'done' ? o.items : undefined });
 async function deliver(o) { // ambil stok secara atomik (LPOP), kirim ke pembeli
   if (o.status !== 'paid' || !(await db('SETNX', 'dlv:' + o.id, '1'))) return o;
   const got = []; for (let i = 0; i < o.qty; i++) { const s = await db('LPOP', 'q:' + o.pid); if (!s) break; got.push(s); }
@@ -84,7 +86,7 @@ async function deliver(o) { // ambil stok secara atomik (LPOP), kirim ke pembeli
 async function refresh(o) {
   if (o.status === 'pending') {
     let s; try { s = (await pay('/api/pay/status?id=' + encodeURIComponent(o.payId), { method: 'GET' })).status; } catch { return o; }
-    if (s === 'expire' || s === 'cancel') { o.status = 'expire'; await W('o:' + o.id, o); return o; }
+    if (s === 'expire' || s === 'cancel') { o.status = 'expire'; await W('o:' + o.id, o); if (o.voucher && (await db('SETNX', 'vr:' + o.id, '1'))) await db('DECR', 'vu:' + o.voucher); return o; }
     if (s !== 'settlement') return o;
     if (!(await db('SETNX', 'pd:' + o.id, '1'))) return (await J('o:' + o.id)) || o; // hanya satu proses yang boleh memproses
     o.status = 'paid'; o.paidAt = new Date().toISOString(); await W('o:' + o.id, o);
@@ -105,20 +107,44 @@ const clean = b => {
 const withStock = async ps => Promise.all(ps.map(async p => ({ ...p, stock: await db('LLEN', 'q:' + p.id) })));
 const allProducts = async () => (await mget((await db('SMEMBERS', 'idx:prod')).map(i => 'p:' + i))).filter(Boolean).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 
+const okImg = i => !i || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(i) && i.length < 150000) || /^https:\/\/\S{4,500}$/.test(i);
+const cfg = async () => ({ name: SITE, logo: '', ...((await J('cfg')) || {}) });
+// ---------- Voucher ----------
+const vcCode = s => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 20);
+const vcUsed = async code => Number(await db('GET', 'vu:' + code)) || 0;
+async function vcCheck(code, sub) { // validasi voucher, kembalikan {v, discount}
+  const v = code && await J('vc:' + code); if (!v || !v.active) bad('Kode voucher tidak valid', 404);
+  if (v.expiry && Date.now() > new Date(v.expiry + 'T23:59:59+07:00').getTime()) bad('Voucher sudah kedaluwarsa');
+  if (v.min && sub < v.min) bad('Minimal belanja untuk voucher ini ' + rp(v.min));
+  if (v.quota && (await vcUsed(code)) >= v.quota) bad('Kuota voucher sudah habis', 409);
+  let d = v.type === 'percent' ? Math.floor(sub * v.value / 100) : v.value; if (v.type === 'percent' && v.max) d = Math.min(d, v.max);
+  return { v, discount: Math.max(0, Math.min(d, sub - 1000)) };
+}
+const vcClaim = async v => { const n = await db('INCR', 'vu:' + v.code); if (v.quota && n > v.quota) { await db('DECR', 'vu:' + v.code); return false; } return true; };
+
 // ---------- Routes ----------
 const R = {
-  'GET /api/config': async () => ({ name: SITE }),
+  'GET /api/config': async () => cfg(),
+  'POST /api/voucher/check': async c => {
+    lim(c, 20); const p = await J('p:' + String(c.b.pid || '').slice(0, 20)); if (!p || !p.active) bad('Produk tidak tersedia', 404);
+    const sub = p.price * (Math.min(10, Math.max(1, int(c.b.qty) || 1))), r = await vcCheck(vcCode(c.b.code), sub);
+    return { code: r.v.code, discount: r.discount, total: sub - r.discount };
+  },
   'GET /api/products': async () => (await withStock((await allProducts()).filter(p => p.active))).map(({ createdAt, active, ...p }) => p),
   'POST /api/order': async c => {
     lim(c, 12); const p = await J('p:' + String(c.b.pid || '').slice(0, 20)); if (!p || !p.active) bad('Produk tidak tersedia', 404);
     const qty = int(c.b.qty) || 1, phone = normPhone(c.b.wa);
     if (qty < 1 || qty > 10) bad('Jumlah beli 1 sampai 10'); if (!phone) bad('Nomor WhatsApp tidak valid (contoh 0812xxxxxxxx)');
     if ((await db('LLEN', 'q:' + p.id)) < qty) bad('Stok tidak cukup', 409);
-    const amount = p.price * qty; if (amount < 1000) bad('Total transaksi minimal Rp 1.000');
-    const id = rid(8), d = await pay('/api/pay/create', { method: 'POST', body: JSON.stringify({ amount, reference: id, channel: E.PAY_CHANNEL || 'qris' }) });
-    const o = { id, pid: p.id, pname: p.name, type: p.type, price: p.price, qty, amount, total: d.total || amount, wa: phone, status: 'pending', payId: d.id, payUrl: d.pay_url, qrUrl: d.qr_url, expiry: d.expiry || null, origin: c.origin, createdAt: new Date().toISOString() };
+    const subtotal = p.price * qty; if (subtotal < 1000) bad('Total transaksi minimal Rp 1.000');
+    let v = null, discount = 0; const code = vcCode(c.b.voucher);
+    if (code) { ({ v, discount } = await vcCheck(code, subtotal)); if (!(await vcClaim(v))) bad('Kuota voucher sudah habis', 409); }
+    const amount = subtotal - discount, id = rid(8);
+    let d; try { d = await pay('/api/pay/create', { method: 'POST', body: JSON.stringify({ amount, reference: id, channel: E.PAY_CHANNEL || 'qris' }) }); }
+    catch (e) { if (v) await db('DECR', 'vu:' + v.code); throw e; }
+    const o = { id, pid: p.id, pname: p.name, type: p.type, price: p.price, qty, subtotal, discount, voucher: v ? v.code : null, amount, total: d.total || amount, wa: phone, status: 'pending', payId: d.id, payUrl: d.pay_url, qrUrl: d.qr_url, expiry: d.expiry || null, origin: c.origin, createdAt: new Date().toISOString() };
     await W('o:' + id, o); await db('LPUSH', 'orders', id);
-    await sendWa(phone, `🧾 Pesanan dibuat\nInvoice: ${id}\nProduk: ${p.name} x${qty}\nTotal bayar: ${rp(o.total)}\n\nBayar QRIS di: ${c.origin}/?inv=${id}\nAkun dikirim otomatis ke WhatsApp ini setelah pembayaran berhasil.`);
+    await sendWa(phone, `🧾 Pesanan dibuat\nInvoice: ${id}\nProduk: ${p.name} x${qty}\n` + (discount ? `Diskon (${v.code}): -${rp(discount)}\n` : '') + `Total bayar: ${rp(o.total)}\n\nBayar QRIS di: ${c.origin}/?inv=${id}\nAkun dikirim otomatis ke WhatsApp ini setelah pembayaran berhasil.`);
     return { id };
   },
   'GET /api/order': async c => {
@@ -139,7 +165,9 @@ const R = {
   'POST /api/admin/logout': async c => { session(c, false); return { ok: 1 }; },
   'GET /api/admin/data': async c => {
     adm(c); const ids = await db('LRANGE', 'orders', 0, 199);
-    return { products: await withStock(await allProducts()), orders: (await mget(ids.map(i => 'o:' + i))).filter(Boolean).map(({ items, ...o }) => o) };
+    const vcs = (await mget((await db('SMEMBERS', 'idx:vc')).map(i => 'vc:' + i))).filter(Boolean).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    for (const v of vcs) v.used = await vcUsed(v.code);
+    return { settings: await cfg(), vouchers: vcs, products: await withStock(await allProducts()), orders: (await mget(ids.map(i => 'o:' + i))).filter(Boolean).map(({ items, ...o }) => o) };
   },
   'POST /api/admin/product': async c => {
     adm(c); const d = clean(c.b), old = c.b.id ? await J('p:' + String(c.b.id)) : null; if (c.b.id && !old) bad('Produk tidak ditemukan', 404);
@@ -147,6 +175,20 @@ const R = {
     await W('p:' + p.id, p); await db('SADD', 'idx:prod', p.id); return { ok: 1, id: p.id };
   },
   'POST /api/admin/product/delete': async c => { adm(c); const id = String(c.b.id || ''); await db('SREM', 'idx:prod', id); await db('DEL', 'p:' + id); return { ok: 1 }; },
+  'POST /api/admin/settings': async c => {
+    adm(c); const name = String(c.b.name || '').trim().slice(0, 40), logo = String(c.b.logo || '').trim();
+    if (!name) bad('Nama website wajib diisi'); if (!okImg(logo)) bad('Logo harus gambar PNG/JPG/WebP atau URL https');
+    await W('cfg', { name, logo }); return { ok: 1 };
+  },
+  'POST /api/admin/voucher': async c => {
+    adm(c); const code = vcCode(c.b.code), type = c.b.type === 'fixed' ? 'fixed' : 'percent', value = int(c.b.value), exp = String(c.b.expiry || '').trim();
+    if (code.length < 3) bad('Kode voucher minimal 3 karakter (huruf/angka)'); if (!(value >= 1) || (type === 'percent' && value > 100)) bad('Nilai diskon tidak valid');
+    if (exp && !/^\d{4}-\d{2}-\d{2}$/.test(exp)) bad('Tanggal berlaku tidak valid');
+    const old = await J('vc:' + code), n = k => Math.max(0, int(c.b[k]) || 0);
+    await W('vc:' + code, { code, type, value, min: n('min'), max: type === 'percent' ? n('max') : 0, quota: n('quota'), expiry: exp, active: c.b.active !== false, createdAt: old ? old.createdAt : new Date().toISOString() });
+    await db('SADD', 'idx:vc', code); return { ok: 1 };
+  },
+  'POST /api/admin/voucher/delete': async c => { adm(c); const code = vcCode(c.b.code); await db('SREM', 'idx:vc', code); await db('DEL', 'vc:' + code); await db('DEL', 'vu:' + code); return { ok: 1 }; },
   'GET /api/admin/stock': async c => {
     adm(c); const pid = String(c.q.get('pid') || ''); const ids = (await db('SMEMBERS', 'idx:s:' + pid)).slice(-400);
     return (await mget(ids.map(i => 's:' + i))).filter(Boolean).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
