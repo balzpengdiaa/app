@@ -66,7 +66,7 @@ function buy(p){
 const kv=(l,v)=>'<div class="kv"><small>'+l+'</small><code>'+E(v)+'</code><button data-cp="'+E(v)+'">Salin</button></div>';
 function draw(o){
   const S={pending:'Menunggu pembayaran',paid:'Dibayar, diproses',done:'Selesai',expire:'Kedaluwarsa'};
-  let h='<span class="st '+o.status+'">'+S[o.status]+'</span><h2 style="margin:14px 0 4px">'+E(o.pname)+' x'+o.qty+'</h2><div class="mu">Invoice <b>'+o.id+'</b> &middot; WhatsApp '+E(o.wa)+'</div>';
+  let h='<span class="st '+o.status+'">'+S[o.status]+'</span><h2 style="margin:14px 0 4px">'+E(o.pname)+' x'+o.qty+'</h2><div class="mu">Invoice <b>'+o.id+'</b> &middot; '+(o.wa=='Telegram'?'':'WhatsApp ')+E(o.wa)+'</div>';
   if(o.status=='pending')h+=(o.qrUrl?'<img class="qr" src="'+E(o.qrUrl)+'" alt="QRIS">':'')+'<div style="text-align:center">'+(o.discount?'<div class="mu">Diskon voucher '+E(o.voucher)+': -'+rp(o.discount)+'</div>':'')+'<div class="mu">Total bayar</div><div style="font-size:30px;font-weight:800;color:var(--ac)">'+rp(o.total)+'</div><p class="mu">Scan dengan aplikasi bank atau e-wallet. Halaman ini otomatis berubah setelah pembayaran terdeteksi.'+(o.expiry?'<br>Batas bayar: '+E(o.expiry):'')+'</p><a class="btn" href="'+E(o.payUrl)+'" target="_blank" rel="noopener">Buka halaman pembayaran</a></div>';
   if(o.status=='paid')h+='<p>'+E(o.note||'Pembayaran diterima, akun sedang disiapkan...')+'</p>';
   if(o.status=='expire')h+='<p class="mu">Waktu pembayaran habis. Silakan buat pesanan baru.</p>';
