@@ -22,6 +22,9 @@ label{display:block;font-size:12px;font-weight:600;color:var(--mu);margin:14px 0
 .st{display:inline-block;border-radius:99px;padding:3px 10px;font-weight:600;font-size:11px;white-space:nowrap}.pending{background:#fef3c7;color:#b45309}.done{background:#dcfce7;color:#15803d}.paid{background:#dbeafe;color:#1d4ed8}.expire{background:#fee2e2;color:#b91c1c}.off{background:#f1f5f9;color:#64748b}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin-bottom:20px}.stats .card{margin:0}.stats small{color:var(--mu);font-size:12px;font-weight:600}.stats b{display:block;font-size:24px;margin-top:6px}
 .thumb{width:40px;height:40px;border-radius:9px;object-fit:contain;background:#f1f5f9}.msg{font-size:13px;margin-top:12px;color:#dc2626;min-height:16px}.msg.ok{color:#15803d}.mu{color:var(--mu)}code{font-size:12px;word-break:break-all}.acts{white-space:nowrap}
+.btn{display:inline-block;text-decoration:none}a.btn{line-height:1.2}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row .btn{margin-top:0}.cp{display:flex;gap:8px}.cp .in{flex:1}
+.inv{max-width:640px;margin:0 auto;color:#0f172a}.ih{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:2px solid #0f172a;padding-bottom:14px;margin-bottom:14px}.ih .sn{font-size:20px}.inv table td{padding:8px 0;border-bottom:1px solid #e2e8f0}.inv table td:last-child{text-align:right}.inv .tot td{font-size:16px;font-weight:700;border-bottom:2px solid #0f172a}.inv pre{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-all;margin:8px 0;font-size:12px}
+.ord{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9}.ord:last-child{border:0}.ord .n{width:26px;color:var(--mu);font-weight:700;text-align:center}.ord .t{flex:1;min-width:0}.pg{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px}
 .login{max-width:380px;margin:14vh auto;padding:28px}.login .btn{width:100%}.hint{font-size:12px;color:var(--mu);margin:6px 0 0}
 </style></head><body><div id="app"></div>
 <script>
@@ -31,8 +34,9 @@ async function api(p,b){const r=await fetch('/api/'+p,b===undefined?{}:{method:'
 const msg=(t,ok,id='m')=>{const m=$('#'+id);if(m){m.className='msg'+(ok?' ok':'');m.textContent=t}};
 let D,tab='tx',edit=null,spid='';
 const IC={tx:'<path d="M3 5h18M3 12h18M3 19h12"/>',pr:'<path d="M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/>',st:'<path d="M3 7h18v4H3zM5 11v9h14v-9M10 15h4"/>',vc:'<path d="M3 9a2 2 0 0 0 0 6v3h18v-3a2 2 0 0 1 0-6V6H3zM14 6v12"/>',cf:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'};
+IC.rw='<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>';IC.by='<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>';IC.iv='<path d="M6 2h9l5 5v15H6zM14 2v6h6M9 13h6M9 17h6"/>';IC.ur='<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>';IC.tg='<path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>';
 const svg=k=>'<svg viewBox="0 0 24 24">'+IC[k]+'</svg>';
-const TABS=[['tx','Transaksi','Penjualan'],['pr','Produk','Katalog'],['st','Stok','Katalog'],['vc','Voucher','Promosi'],['cf','Pengaturan','Sistem']];
+const TABS=[['tx','Transaksi','Penjualan'],['rw','Riwayat Order','Penjualan'],['by','Pembayaran','Penjualan'],['iv','Invoice','Penjualan'],['pr','Produk','Katalog'],['ur','Urutan Produk','Katalog'],['st','Stok','Katalog'],['vc','Voucher','Promosi'],['tg','Telegram Bot','Sistem'],['cf','Pengaturan','Sistem']];
 function login(){
   $('#app').innerHTML='<div class="card login"><h2 style="font-size:20px">Masuk Admin</h2><p class="mu" style="margin:0 0 6px">Silakan login untuk mengelola toko.</p><label>Username</label><input class="in" id="u" autocapitalize="none"><label>Password</label><input class="in" id="p" type="password"><div id="m" class="msg"></div><button class="btn" id="go">Masuk</button></div>';
   const go=async()=>{try{await api('admin/login',{username:$('#u').value,password:$('#p').value});start()}catch(e){msg(e.message)}};
@@ -46,7 +50,7 @@ async function start(){
   $('#lo').onclick=async()=>{await api('admin/logout',{});login()};
   $('#bg').onclick=()=>document.body.classList.add('open');$('#bk').onclick=()=>document.body.classList.remove('open');document.body.classList.remove('open');
   document.querySelectorAll('.menu button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;edit=null;start()});
-  ({tx,pr,st,vc,cf})[tab]();
+  ({tx,rw,by,iv,pr,ur,st,vc,tg,cf})[tab]();
 }
 const SL={pending:'Menunggu bayar',paid:'Perlu diproses',done:'Selesai',expire:'Kedaluwarsa'};
 function tx(){
@@ -88,6 +92,70 @@ function cf(){
   $('#f').onchange=async e=>{try{logo=await shrink(e.target.files[0]);$('#li').value='';$('#pv').src=logo;$('#pv').hidden=false}catch(x){msg(x.message)}};
   $('#rm').onclick=()=>{logo='';$('#li').value='';$('#pv').hidden=true};
   $('#sv').onclick=async()=>{try{await api('admin/settings',{name:$('#sn').value,logo:$('#li').value.trim()||logo});await start();msg('Pengaturan tersimpan.',1)}catch(e){msg(e.message)}};
+}
+const SLX={pending:'Menunggu bayar',paid:'Perlu diproses',done:'Selesai',expire:'Kedaluwarsa'},dtl=s=>s?new Date(s).toLocaleString('id-ID',{day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-';
+const cpy=async(t,b)=>{try{await navigator.clipboard.writeText(t);if(b){const o=b.textContent;b.textContent='Tersalin';setTimeout(()=>b.textContent=o,1200)}}catch{prompt('Salin manual:',t)}};
+function bindOrd(){document.querySelectorAll('[data-o]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api('admin/order',{id:b.dataset.o,action:b.dataset.a});start()}catch(e){alert(e.message);b.disabled=false}});
+  document.querySelectorAll('[data-iv]').forEach(b=>b.onclick=()=>{tab='iv';ivid=b.dataset.iv;start()})}
+const actBtn=x=>(x.status=='pending'?'<button class="btn sm g" data-o="'+x.id+'" data-a="check">Cek bayar</button> ':x.status=='paid'?'<button class="btn sm" data-o="'+x.id+'" data-a="redeliver">Kirim akun</button> ':'');
+// ---- Riwayat Order ----
+let rwf={q:'',s:'',p:0};
+function rw(){
+  $('#v').innerHTML='<div class="card"><h2>Riwayat Order</h2><div class="g2"><div><label>Cari (invoice, WhatsApp, produk)</label><input class="in" id="rq" value="'+E(rwf.q)+'" placeholder="Ketik untuk mencari"></div><div><label>Status</label><select class="in" id="rs"><option value="">Semua</option>'+Object.entries(SLX).map(([k,v])=>'<option value="'+k+'" '+(rwf.s==k?'selected':'')+'>'+v+'</option>').join('')+'</select></div></div></div><div class="card"><div id="rt"></div></div>';
+  const draw=()=>{const q=rwf.q.trim().toLowerCase(),o=D.orders.filter(x=>(!rwf.s||x.status==rwf.s)&&(!q||(x.id+' '+x.wa+' '+x.pname).toLowerCase().includes(q))),n=Math.max(1,Math.ceil(o.length/15));rwf.p=Math.min(rwf.p,n-1);
+    $('#rt').innerHTML='<div class="tw"><table><tr><th>Invoice</th><th>Waktu</th><th>Produk</th><th>WhatsApp</th><th>Total</th><th>Status</th><th></th></tr>'+(o.slice(rwf.p*15,rwf.p*15+15).map(x=>'<tr><td><code>'+x.id+'</code></td><td>'+dt(x.createdAt)+'</td><td>'+E(x.pname)+' x'+x.qty+'</td><td>'+E(x.wa)+'</td><td>'+rp(x.total)+'</td><td><span class="st '+x.status+'">'+SLX[x.status]+'</span></td><td class="acts">'+actBtn(x)+'<button class="btn sm g" data-iv="'+x.id+'">Invoice</button></td></tr>').join('')||'<tr><td colspan="7" class="mu">Tidak ada order.</td></tr>')+'</table></div><div class="pg"><button class="btn sm g" id="pp" '+(rwf.p<1?'disabled':'')+'>Sebelumnya</button><span class="mu">'+(rwf.p+1)+' / '+n+' ('+o.length+' order)</span><button class="btn sm g" id="pn" '+(rwf.p>=n-1?'disabled':'')+'>Berikutnya</button></div>';
+    $('#pp').onclick=()=>{rwf.p--;draw()};$('#pn').onclick=()=>{rwf.p++;draw()};bindOrd()};
+  $('#rq').oninput=e=>{rwf.q=e.target.value;rwf.p=0;draw()};$('#rs').onchange=e=>{rwf.s=e.target.value;rwf.p=0;draw()};draw();
+}
+// ---- Pembayaran ----
+function by(){
+  const o=D.orders,P=D.pay,k=t=>new Date(new Date(t).getTime()+7*36e5).toISOString().slice(0,10),today=k(Date.now()),sold=o.filter(x=>x.status=='paid'||x.status=='done'),at=x=>k(x.paidAt||x.createdAt),sum=f=>sold.filter(x=>f(at(x))).reduce((a,x)=>a+x.total,0),pend=o.filter(x=>x.status=='pending');
+  $('#v').innerHTML='<div class="stats"><div class="card"><small>Pemasukan hari ini</small><b>'+rp(sum(d=>d==today))+'</b></div><div class="card"><small>Pemasukan bulan ini</small><b>'+rp(sum(d=>d.slice(0,7)==today.slice(0,7)))+'</b></div><div class="card"><small>Menunggu bayar</small><b>'+rp(pend.reduce((a,x)=>a+x.total,0))+'</b><small>'+pend.length+' transaksi</small></div><div class="card"><small>Total diskon voucher</small><b>'+rp(sold.reduce((a,x)=>a+(x.discount||0),0))+'</b></div></div>'
+  +'<div class="card"><h2>Gateway pembayaran (Saya Pay)</h2><div class="row"><span class="st '+(P.keySet?'done':'expire')+'">'+(P.keySet?'API key terpasang':'PAY_KEY belum diisi')+'</span><span class="st off">Metode: '+E(P.channel.toUpperCase())+'</span></div><label>Webhook URL (isi di dashboard Saya Pay)</label><div class="cp"><input class="in" id="wh" readonly value="'+E(P.webhook)+'"><button class="btn sm g" id="cw">Salin</button></div><div class="hint">Webhook membuat akun terkirim otomatis walau pembeli menutup halaman pembayaran.</div></div>'
+  +'<div class="card"><h2>Daftar pembayaran</h2><div class="tw"><table><tr><th>Invoice</th><th>ID bayar</th><th>Nominal</th><th>Total dibayar</th><th>Biaya</th><th>Status</th><th>Dibayar</th><th></th></tr>'+(o.map(x=>'<tr><td><code>'+x.id+'</code></td><td><code>'+E(x.payId||'-')+'</code></td><td>'+rp(x.amount)+'</td><td>'+rp(x.total)+'</td><td>'+(x.total>x.amount?rp(x.total-x.amount):'-')+'</td><td><span class="st '+x.status+'">'+SLX[x.status]+'</span></td><td>'+dt(x.paidAt)+'</td><td class="acts">'+actBtn(x)+'<button class="btn sm g" data-iv="'+x.id+'">Invoice</button></td></tr>').join('')||'<tr><td colspan="8" class="mu">Belum ada pembayaran.</td></tr>')+'</table></div></div>';
+  $('#cw').onclick=e=>cpy(P.webhook,e.target);bindOrd();
+}
+// ---- Urutan Produk ----
+async function ur(){
+  const ps=D.products;
+  $('#v').innerHTML='<div class="card"><h2>Urutan Produk</h2><p class="mu">Urutan di sini sama dengan urutan katalog di toko dan di menu bot Telegram. Produk baru otomatis masuk paling bawah.</p>'+(ps.map((x,i)=>'<div class="ord"><span class="n">'+(i+1)+'</span>'+(x.icon?'<img class="thumb" src="'+E(x.icon)+'">':'<span class="thumb"></span>')+'<div class="t"><b>'+E(x.name)+'</b><br><span class="mu">'+rp(x.price)+' &middot; stok '+x.stock+' &middot; '+(x.active?'Tampil':'Tersembunyi')+'</span></div><button class="btn sm g" data-m="'+i+'" data-d="-1" '+(i?'':'disabled')+'>&#9650;</button><button class="btn sm g" data-m="'+i+'" data-d="1" '+(i<ps.length-1?'':'disabled')+'>&#9660;</button></div>').join('')||'<p class="mu">Belum ada produk.</p>')+'</div>';
+  document.querySelectorAll('[data-m]').forEach(b=>b.onclick=async()=>{const i=+b.dataset.m,j=i+ +b.dataset.d,ids=ps.map(x=>x.id);[ids[i],ids[j]]=[ids[j],ids[i]];try{await api('admin/product/order',{ids});start()}catch(e){alert(e.message)}});
+}
+// ---- Invoice ----
+let ivid='';
+const invHtml=(o)=>'<div class="inv"><div class="ih"><div><b class="sn">'+E(D.settings.name)+'</b><div class="mu">INVOICE</div></div><div style="text-align:right"><code>'+E(o.id)+'</code><br><span class="st '+o.status+'">'+SLX[o.status]+'</span></div></div><table>'
+  +[['Tanggal',dtl(o.createdAt)],['WhatsApp pembeli',E(o.wa)],['Produk',E(o.pname)],['Jumlah',o.qty+' x '+rp(o.price)],['Subtotal',rp(o.subtotal??o.price*o.qty)]].map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('')
+  +(o.discount?'<tr><td>Diskon ('+E(o.voucher)+')</td><td>-'+rp(o.discount)+'</td></tr>':'')+'<tr class="tot"><td>Total bayar</td><td>'+rp(o.total)+'</td></tr><tr><td>Dibayar pada</td><td>'+dtl(o.paidAt)+'</td></tr></table>'
+  +(o.status=='done'&&o.items?'<h2 style="margin-top:18px">Akun yang dikirim</h2>'+o.items.map((d,i)=>(o.qty>1?'<b>#'+(i+1)+'</b>':'')+'<pre>'+E(d.link?'Link: '+d.link:['Email: '+d.email,'Password: '+d.password,d.pin&&'PIN: '+d.pin,d.profile&&'Profile: '+d.profile,d.a2f&&'A2F: '+d.a2f].filter(Boolean).join('\n'))+'</pre>').join(''):'')
+  +(o.note?'<p class="msg">'+E(o.note)+'</p>':'')+'</div>';
+async function iv(){
+  let doc='';if(ivid){try{doc=invHtml(await api('admin/invoice?id='+encodeURIComponent(ivid)))}catch(e){doc='<p class="msg">'+E(e.message)+'</p>'}}
+  $('#v').innerHTML='<div class="card" style="max-width:640px"><h2>Cari invoice</h2><div class="cp"><input class="in" id="iq" maxlength="16" placeholder="ID invoice (16 karakter)" value="'+E(ivid)+'" style="text-transform:uppercase"><button class="btn sm" id="ig">Buka</button></div><label>Atau pilih dari order terbaru</label><select class="in" id="is"><option value="">- pilih order -</option>'+D.orders.map(x=>'<option value="'+x.id+'" '+(x.id==ivid?'selected':'')+'>'+x.id.slice(0,8)+' &middot; '+E(x.pname)+' x'+x.qty+' &middot; '+rp(x.total)+' &middot; '+SLX[x.status]+'</option>').join('')+'</select></div>'+(doc?'<div class="card">'+doc+'<div class="row" style="justify-content:center;margin-top:16px"><button class="btn" id="pt">Cetak / simpan PDF</button></div></div>':'');
+  const go=v=>{ivid=String(v||'').trim().toUpperCase();iv()};$('#ig').onclick=()=>go($('#iq').value);$('#iq').onkeydown=e=>{if(e.key=='Enter')go(e.target.value)};$('#is').onchange=e=>go(e.target.value);
+  if($('#pt'))$('#pt').onclick=()=>{const w=open('','_blank');w.document.write('<!doctype html><meta charset="utf-8"><title>Invoice '+E(ivid)+'</title><style>'+document.querySelector('style').textContent+'body{background:#fff;padding:24px}</style>'+doc);w.document.close();w.focus();setTimeout(()=>w.print(),300)};
+}
+// ---- Telegram Bot ----
+function tg(){
+  const T=D.telegram;
+  if(!T.connected){
+    $('#v').innerHTML='<div class="card" style="max-width:640px"><h2>Hubungkan Bot Telegram</h2><p class="mu">Kelola toko dari Telegram: riwayat order, stok, urutan produk, pembayaran, dan invoice, plus notifikasi order baru dan penjualan.</p><ol class="mu" style="line-height:1.8;padding-left:18px;margin:0"><li>Buka <b>@BotFather</b> di Telegram, kirim <code>/newbot</code>, ikuti langkahnya.</li><li>Salin <b>token</b> bot yang diberikan, tempel di bawah.</li><li>Klik Hubungkan, lalu tekan tombol <b>Hubungkan akun Telegram saya</b> yang muncul.</li></ol><label>Token bot</label><input class="in" id="tk" type="password" autocomplete="off" placeholder="123456789:AAH..."><div id="m" class="msg"></div><button class="btn" id="cn">Hubungkan bot</button></div>';
+    $('#cn').onclick=async e=>{e.target.disabled=true;try{await api('admin/telegram/connect',{token:$('#tk').value});await start()}catch(x){msg(x.message);e.target.disabled=false}};return;
+  }
+  const ad=T.admins;
+  $('#v').innerHTML='<div class="card"><h2>Bot terhubung</h2><div class="row"><b style="font-size:16px">@'+E(T.username)+'</b><span class="st done">Aktif</span><span class="st off">'+(T.mode=='webhook'?'Webhook (otomatis)':'Polling (server lokal)')+'</span></div><p class="mu">'+(T.mode=='webhook'?'Telegram mengirim pesan langsung ke '+E(T.webhook)+'. Tidak ada yang perlu dijalankan manual.':'Domain belum HTTPS, jadi bot memakai polling dan hanya aktif selama server ini berjalan. Di Vercel otomatis memakai webhook.')+'</p>'
+  +'<label>Hubungkan akun Telegram admin</label><div class="row"><a class="btn" id="lk" href="'+E(T.link)+'" target="_blank" rel="noopener">Hubungkan akun Telegram saya</a><button class="btn g" id="cl">Salin tautan</button><button class="btn g" id="nc">Buat tautan baru</button></div><div class="hint">Tautan sekali pakai: setelah ada yang menekan Start di bot, tautan berganti otomatis. Kirim ke admin lain bila perlu.</div></div>'
+  +'<div class="card"><h2>Admin yang terhubung ('+ad.length+')</h2><div class="tw"><table><tr><th>Nama</th><th>Username</th><th>Terhubung</th><th></th></tr>'+(ad.map(a=>'<tr><td>'+E(a.name)+'</td><td>'+(a.username?'@'+E(a.username):'-')+'</td><td>'+dt(a.at)+'</td><td><button class="btn sm r" data-r="'+E(a.id)+'">Putuskan</button></td></tr>').join('')||'<tr><td colspan="4" class="mu">Belum ada. Tekan tombol hubungkan di atas, lalu Start di Telegram.</td></tr>')+'</table></div></div>'
+  +'<div class="card"><h2>Alat</h2><div class="row"><button class="btn g" id="ts">Kirim menu tes ke Telegram</button><button class="btn g" id="sc">Cek status koneksi</button><button class="btn g" id="rs">Sinkron ulang</button><button class="btn r" id="dc">Putus bot</button></div><div id="m" class="msg"></div><label>Ganti token bot</label><div class="cp"><input class="in" id="tk" type="password" autocomplete="off" placeholder="Token baru dari @BotFather"><button class="btn sm" id="ct">Ganti</button></div></div>'
+  +'<div class="card"><h2>Menu di bot</h2><p class="mu" style="margin:0;line-height:1.8">Riwayat Order (detail, cek bayar, kirim akun) &middot; Stok (lihat dan tambah stok lewat chat) &middot; Produk &amp; Urutan (geser posisi, tampil/sembunyikan) &middot; Pembayaran (ringkasan, cek pending) &middot; Invoice (pilih order atau ketik ID invoice). Notifikasi order baru, penjualan sukses, dan stok habis masuk otomatis.</p></div>';
+  const run=(id,fn,ok)=>$('#'+id).onclick=async e=>{e.target.disabled=true;try{const r=await fn();if(ok)ok(r)}catch(x){msg(x.message)}e.target.disabled=false};
+  $('#cl').onclick=e=>cpy(T.link,e.target);
+  run('nc',async()=>{await api('admin/telegram/code',{});await start()});
+  run('ts',()=>api('admin/telegram/test',{}),r=>msg('Menu terkirim ke '+r.sent+' akun Telegram.',1));
+  run('sc',()=>api('admin/telegram/status'),r=>msg(r.mode=='webhook'?'Webhook: '+(r.url?'terpasang':'belum terpasang')+', antrean '+r.pending+(r.error?'. Error terakhir: '+r.error:'. Tidak ada error.'):'Mode polling aktif.',!r.error));
+  run('rs',async()=>{await api('admin/telegram/connect',{});await start();msg('Koneksi disinkronkan ulang.',1)});
+  run('ct',async()=>{await api('admin/telegram/connect',{token:$('#tk').value});await start();msg('Token diganti.',1)});
+  run('dc',async()=>{if(confirm('Putuskan bot? Notifikasi dan menu Telegram berhenti.')){await api('admin/telegram/disconnect',{});await start()}});
+  document.querySelectorAll('[data-r]').forEach(b=>b.onclick=async()=>{if(confirm('Putuskan akun ini dari bot?')){await api('admin/telegram/remove',{id:b.dataset.r});start()}});
 }
 start();
 </script></body></html>
