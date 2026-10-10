@@ -70,19 +70,21 @@ async function pay(p, opt) {
 }
 
 // ---------- Order ----------
-const pubOrder = o => ({ id: o.id, pname: o.pname, qty: o.qty, total: o.total, status: o.status, note: o.note || null, discount: o.discount || 0, voucher: o.voucher || null, wa: mask(o.wa), payUrl: o.payUrl, qrUrl: o.qrUrl, expiry: o.expiry, createdAt: o.createdAt, items: o.status === 'done' ? o.items : undefined });
+const pubOrder = o => ({ id: o.id, pname: o.pname, qty: o.qty, total: o.total, status: o.status, note: o.note || null, discount: o.discount || 0, voucher: o.voucher || null, wa: o.wa ? mask(o.wa) : 'Telegram', payUrl: o.payUrl, qrUrl: o.qrUrl, expiry: o.expiry, createdAt: o.createdAt, items: o.status === 'done' ? o.items : undefined });
 async function deliver(o) { // ambil stok secara atomik (LPOP), kirim ke pembeli
   if (o.status !== 'paid' || !(await db('SETNX', 'dlv:' + o.id, '1'))) return o;
   const got = []; for (let i = 0; i < o.qty; i++) { const s = await db('LPOP', 'q:' + o.pid); if (!s) break; got.push(s); }
   if (got.length < o.qty) { for (const s of got.reverse()) await db('LPUSH', 'q:' + o.pid, s); await db('DEL', 'dlv:' + o.id); const first = !o.note; o.note = 'Pembayaran diterima. Stok sedang diisi ulang, akun dikirim secepatnya oleh admin.'; await W('o:' + o.id, o);
+    if (first && o.tg) await tgDm(o.tg.id, `✅ Pembayaran <code>${o.id}</code> diterima. Stok sedang diisi ulang, akun dikirim secepatnya di chat ini.`);
     if (first) await tgNotify(`⚠️ <b>Dibayar tapi stok habis</b>\nInvoice: <code>${o.id}</code>\n${hx(o.pname)} x${o.qty}\nIsi stok lalu tekan "Kirim akun" di Riwayat Order.`); return o; }
   const items = await mget(got.map(s => 's:' + s));
   for (const it of items) { it.sold = true; it.order = o.id; await W('s:' + it.id, it); }
   o.items = items.map(i => i.data); o.status = 'done'; o.doneAt = new Date().toISOString(); delete o.note; await W('o:' + o.id, o);
   await Promise.all([
+    o.tg && tgDm(o.tg.id, `✅ <b>Pembayaran berhasil!</b>\nInvoice: <code>${o.id}</code>\nProduk: ${hx(o.pname)} x${o.qty}\n\n` + o.items.map((d, i) => (o.qty > 1 ? `Akun ${i + 1}\n` : '') + `<code>${hx(fmt(d))}</code>`).join('\n\n') + `\n\nSimpan pesan ini. Terima kasih!`),
     sendWa(o.wa, `✅ Pembayaran berhasil!\nInvoice: ${o.id}\nProduk: ${o.pname} x${o.qty}\n\n` + o.items.map((d, i) => (o.qty > 1 ? `--- Akun ${i + 1} ---\n` : '') + fmt(d)).join('\n\n') + `\n\nSimpan pesan ini. Detail juga ada di ${o.origin}/?inv=${o.id}`),
-    waAdmin(`Penjualan sukses\nInvoice: ${o.id}\n${o.pname} x${o.qty}\nTotal: ${rp(o.total)}\nWA: ${o.wa}`),
-    tgNotify(`✅ <b>Penjualan sukses</b>\nInvoice: <code>${o.id}</code>\n${hx(o.pname)} x${o.qty}\nTotal: <b>${rp(o.total)}</b>\nWA: ${hx(o.wa)}`)]);
+    waAdmin(`Penjualan sukses\nInvoice: ${o.id}\n${o.pname} x${o.qty}\nTotal: ${rp(o.total)}\nWA: ${buyer(o)}`),
+    tgNotify(`✅ <b>Penjualan sukses</b>\nInvoice: <code>${o.id}</code>\n${hx(o.pname)} x${o.qty}\nTotal: <b>${rp(o.total)}</b>\nPembeli: ${hx(buyer(o))}`)]);
   return o;
 }
 async function refresh(o) {
@@ -153,18 +155,18 @@ const tgSafe = (t, method, body) => tgCall(t.token, method, body).catch(e => con
 async function tgNotify(text) { // notifikasi ke semua admin yang sudah terhubung; gagal tidak boleh menggagalkan transaksi
   try { const t = await tgCfg(); if (t && t.admins.length) await Promise.all(t.admins.map(a => tgSafe(t, 'sendMessage', { chat_id: a.id, text, parse_mode: 'HTML', disable_web_page_preview: true }))); } catch (e) { console.error('[tg]', e.message); }
 }
-const tgView = (t, c) => t && ({ connected: true, username: t.username, name: t.name, mode: t.mode, code: t.code, link: `https://t.me/${t.username}?start=${t.code}`, admins: t.admins, connectedAt: t.connectedAt, webhook: c ? c.origin + '/api/telegram' : '' });
+const tgView = (t, c) => t && ({ connected: true, username: t.username, name: t.name, mode: t.mode, code: t.code, link: `https://t.me/${t.username}?start=${t.code}`, admins: t.admins, connectedAt: t.connectedAt, webhook: c ? c.origin + '/api/telegram' : '', public: t.public !== false });
 const EMO = { pending: '⏳', paid: '🔵', done: '✅', expire: '❌' }, SLB = { pending: '⏳ Menunggu bayar', paid: '🔵 Perlu diproses', done: '✅ Selesai', expire: '❌ Kedaluwarsa' };
 const wib = s => s ? new Date(s).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 const dkey = ms => new Date(ms + 7 * 36e5).toISOString().slice(0, 10); // tanggal WIB
 const loadOrders = async n => (await mget((await db('LRANGE', 'orders', 0, n - 1)).map(i => 'o:' + i))).filter(Boolean);
 const btn = (text, data) => ({ text, callback_data: data }), HOME = [btn('🏠 Menu utama', 'home')], PG = 6;
-const invText = o => `🧾 <b>INVOICE</b> <code>${o.id}</code>\n${SLB[o.status]}\n\nTanggal: ${wib(o.createdAt)}\nPembeli (WA): ${hx(o.wa)}\nProduk: ${hx(o.pname)}\nJumlah: ${o.qty} x ${rp(o.price)} = ${rp(o.subtotal ?? o.price * o.qty)}\n` + (o.discount ? `Diskon (${hx(o.voucher)}): -${rp(o.discount)}\n` : '') + `<b>Total bayar: ${rp(o.total)}</b>\nDibayar: ${wib(o.paidAt)}\n` + (o.status === 'done' && o.items ? '\n<b>Akun terkirim:</b>\n' + o.items.map((d, i) => (o.qty > 1 ? `#${i + 1}\n` : '') + `<code>${hx(fmt(d))}</code>`).join('\n') : '') + (o.note ? `\n⚠️ ${hx(o.note)}` : '');
+const invText = o => `🧾 <b>INVOICE</b> <code>${o.id}</code>\n${SLB[o.status]}\n\nTanggal: ${wib(o.createdAt)}\nPembeli: ${hx(buyer(o))}\nProduk: ${hx(o.pname)}\nJumlah: ${o.qty} x ${rp(o.price)} = ${rp(o.subtotal ?? o.price * o.qty)}\n` + (o.discount ? `Diskon (${hx(o.voucher)}): -${rp(o.discount)}\n` : '') + `<b>Total bayar: ${rp(o.total)}</b>\nDibayar: ${wib(o.paidAt)}\n` + (o.status === 'done' && o.items ? '\n<b>Akun terkirim:</b>\n' + o.items.map((d, i) => (o.qty > 1 ? `#${i + 1}\n` : '') + `<code>${hx(fmt(d))}</code>`).join('\n') : '') + (o.note ? `\n⚠️ ${hx(o.note)}` : '');
 
 async function scHome() {
   const os = await loadOrders(200), n = s => os.filter(o => o.status === s).length, ps = await withStock(await allProducts());
   return { text: `<b>${hx((await cfg()).name)}</b> · Panel Admin\n\n⏳ Menunggu bayar: <b>${n('pending')}</b>\n🔵 Perlu diproses: <b>${n('paid')}</b>\n✅ Selesai: <b>${n('done')}</b>\n📦 Produk stok habis: <b>${ps.filter(p => p.active && !p.stock).length}</b>\n\nPilih menu:`,
-    kb: [[btn('📋 Riwayat Order', 'ord:0'), btn('📦 Stok', 'stk')], [btn('🛍 Produk & Urutan', 'prd'), btn('💳 Pembayaran', 'pay')], [btn('🧾 Invoice', 'inv:0')]] };
+    kb: [[btn('📋 Riwayat Order', 'ord:0'), btn('📦 Stok', 'stk')], [btn('🛍 Produk & Urutan', 'prd'), btn('💳 Pembayaran', 'pay')], [btn('🧾 Invoice', 'inv:0'), btn('🛒 Tampilan pelanggan', 'uhome')]] };
 }
 async function scList(page, mode) { // mode o = riwayat order, iv = invoice
   const os = await loadOrders(200), pages = Math.max(1, Math.ceil(os.length / PG)), key = mode === 'o' ? 'ord' : 'inv'; page = Math.min(Math.max(0, page | 0), pages - 1);
@@ -176,7 +178,7 @@ async function scOrder(id) {
   const o = await J('o:' + id); if (!o) return { text: 'Order tidak ditemukan.', kb: [HOME] }; const kb = [];
   if (o.status === 'pending') kb.push([btn('🔄 Cek pembayaran', 'chk:' + id)]); if (o.status === 'paid') kb.push([btn('📤 Kirim akun', 'rd:' + id)]);
   kb.push([btn('🧾 Invoice', 'iv:' + id)], [btn('⬅️ Riwayat', 'ord:0'), ...HOME]);
-  return { text: `📋 <b>Order</b> <code>${o.id}</code>\n${SLB[o.status]}\n\nProduk: ${hx(o.pname)} x${o.qty}\nTotal: <b>${rp(o.total)}</b>${o.discount ? ` (diskon ${rp(o.discount)})` : ''}\nWA: ${hx(o.wa)}\nDibuat: ${wib(o.createdAt)}` + (o.note ? `\n\n⚠️ ${hx(o.note)}` : ''), kb };
+  return { text: `📋 <b>Order</b> <code>${o.id}</code>\n${SLB[o.status]}\n\nProduk: ${hx(o.pname)} x${o.qty}\nTotal: <b>${rp(o.total)}</b>${o.discount ? ` (diskon ${rp(o.discount)})` : ''}\nPembeli: ${hx(buyer(o))}\nDibuat: ${wib(o.createdAt)}` + (o.note ? `\n\n⚠️ ${hx(o.note)}` : ''), kb };
 }
 async function scInvoice(id) { const o = await J('o:' + id); return o ? { text: invText(o), kb: [[btn('📋 Detail order', 'o:' + id), btn('⬅️ Daftar', 'inv:0')], HOME] } : { text: 'Invoice tidak ditemukan.', kb: [[btn('⬅️ Daftar', 'inv:0')], HOME] }; }
 async function scStock() {
@@ -197,6 +199,61 @@ async function scPay() {
   const sum = f => rp(sold.filter(o => f(at(o))).reduce((a, o) => a + o.total, 0)), pend = os.filter(o => o.status === 'pending');
   return { text: `💳 <b>Pembayaran</b>\n\nPemasukan hari ini: <b>${sum(d => d === t0)}</b>\nPemasukan bulan ini: <b>${sum(d => d.slice(0, 7) === t0.slice(0, 7))}</b>\nTotal (200 order terakhir): <b>${sum(() => true)}</b>\n\n⏳ Menunggu bayar: <b>${pend.length}</b> (${rp(pend.reduce((a, o) => a + o.total, 0))})\n✅ Lunas: <b>${sold.length}</b>\n❌ Kedaluwarsa: <b>${os.filter(o => o.status === 'expire').length}</b>`,
     kb: [...pend.slice(0, 8).map(o => [btn(`🔄 Cek ${o.id.slice(0, 6)} · ${rp(o.total)}`, 'chk:' + o.id)]), ...(pend.length ? [[btn('🔄 Cek semua pending', 'chkall')]] : []), [btn('📋 Riwayat', 'ord:0'), ...HOME]] };
+}
+// ---- Mode pelanggan: beli langsung lewat bot (katalog, voucher, bayar QRIS, akun dikirim di chat) ----
+const tgDm = async (chat, text, kb) => { try { const t = await tgCfg(); if (t) await tgSafe(t, 'sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, ...(kb && { reply_markup: { inline_keyboard: kb } }) }); } catch {} };
+const UH = [btn('🏠 Beranda', 'uhome')], oriOf = t => E.BASE_URL || t.origin || '';
+async function uHome() { const c = await cfg(); return { text: `👋 Selamat datang di <b>${hx(c.name)}</b>\nBeli akun premium langsung di sini. Bayar QRIS, akun dikirim otomatis di chat ini.`, kb: [[btn('🛍 Katalog', 'ucat')], [btn('🧾 Pesanan saya', 'uos')]] }; }
+async function uCat() {
+  const ps = (await withStock(await allProducts())).filter(p => p.active);
+  return { text: '🛍 <b>Katalog</b>\n\n' + (ps.map(p => `${p.stock ? '🟢' : '🔴'} <b>${hx(p.name)}</b>\n${rp(p.price)} · ${p.stock ? 'stok ' + p.stock : 'habis'}`).join('\n\n') || 'Belum ada produk.') + '\n\nPilih produk:', kb: [...ps.map(p => [btn(`${p.stock ? '' : '🔴 '}${p.name.slice(0, 26)} · ${rp(p.price)}`, p.stock ? `up:${p.id}:1` : 'nop')]), UH] };
+}
+async function uProd(chat, pid, qty) {
+  const p = await J('p:' + pid), stock = p && (await db('LLEN', 'q:' + p.id)); if (!p || !p.active || !stock) return { text: 'Produk tidak tersedia atau stok habis.', kb: [[btn('⬅️ Katalog', 'ucat')]] };
+  qty = Math.min(Math.max(1, qty | 0), Math.min(10, stock)); const sub = p.price * qty; let line = '', disc = 0, vs = await db('GET', 'tgv:' + chat);
+  if (vs && vs.startsWith(pid + '|')) { try { const r = await vcCheck(vs.split('|')[1], sub); disc = r.discount; line = `\n🎟 Voucher ${hx(r.v.code)}: -${rp(disc)}`; } catch { await db('DEL', 'tgv:' + chat); } }
+  return { text: `🛍 <b>${hx(p.name)}</b>\n${hx(p.desc || '')}\n\nHarga: ${rp(p.price)}\nStok: ${stock}\nJumlah: <b>${qty}</b>${line}\n<b>Total: ${rp(sub - disc)}</b>`, kb: [[btn('➖', `up:${pid}:${qty - 1}`), btn(String(qty), 'nop'), btn('➕', `up:${pid}:${qty + 1}`)], [btn('🎟 Pakai voucher', `uv:${pid}:${qty}`), btn('🛒 Pesan & bayar', `ub:${pid}:${qty}`)], [btn('⬅️ Katalog', 'ucat')]] };
+}
+function uPay(o, t) {
+  const url = /^https:\/\//.test(oriOf(t)) ? `${oriOf(t)}/?inv=${o.id}` : /^https:\/\//.test(o.payUrl || '') ? o.payUrl : '';
+  return { text: `🧾 <b>Pesanan dibuat</b>\nInvoice: <code>${o.id}</code>\n${hx(o.pname)} x${o.qty}\n` + (o.discount ? `Diskon (${hx(o.voucher)}): -${rp(o.discount)}\n` : '') + `<b>Total bayar: ${rp(o.total)}</b>\n\nBayar QRIS lewat tombol di bawah. Setelah lunas, akun dikirim otomatis di chat ini.`, kb: [...(url ? [[{ text: '💳 Bayar (QRIS)', url }]] : []), [btn('🔄 Cek pembayaran', 'uc:' + o.id)], [btn('🧾 Pesanan saya', 'uos'), ...UH]] };
+}
+async function uOrders(chat) {
+  const os = (await mget((await db('LRANGE', 'tgo:' + chat, 0, 7)).map(i => 'o:' + i))).filter(Boolean);
+  return { text: '🧾 <b>Pesanan saya</b>\n' + (os.length ? 'Pilih pesanan:' : 'Belum ada pesanan.'), kb: [...os.map(o => [btn(`${EMO[o.status]} ${o.id.slice(0, 6)} · ${o.pname.slice(0, 18)} x${o.qty} · ${rp(o.total)}`, 'uo:' + o.id)]), UH] };
+}
+async function uOrder(chat, id) {
+  const o = await J('o:' + id); if (!o || !o.tg || o.tg.id !== chat) return { text: 'Pesanan tidak ditemukan.', kb: [UH] };
+  const kb = o.status === 'pending' ? [[btn('🔄 Cek pembayaran', 'uc:' + id)]] : [];
+  return { text: `🧾 <b>Pesanan</b> <code>${o.id}</code>\n${SLB[o.status]}\n${hx(o.pname)} x${o.qty}\nTotal: <b>${rp(o.total)}</b>\nDibuat: ${wib(o.createdAt)}` + (o.status === 'done' && o.items ? '\n\n<b>Akun kamu:</b>\n' + o.items.map((d, i) => (o.qty > 1 ? `#${i + 1}\n` : '') + `<code>${hx(fmt(d))}</code>`).join('\n\n') : '') + (o.note ? `\n\n⚠️ ${hx(o.note)}` : ''), kb: [...kb, [btn('⬅️ Pesanan', 'uos'), ...UH]] };
+}
+async function tgRouteU(t, chat, from, data) {
+  const [a, x, y] = String(data).split(':'); if (a !== 'uv') await db('DEL', 'tgc:' + chat);
+  switch (a) {
+    case 'uhome': return uHome(); case 'ucat': return uCat(); case 'up': return uProd(chat, x, +y);
+    case 'uv': { if (!(await J('p:' + x))) return uCat(); await db('SET', 'tgc:' + chat, `vc|${x}|${y}`); return { text: '🎟 Kirim kode voucher kamu sekarang.', kb: [[btn('✖️ Batal', `up:${x}:${y}`)]] }; }
+    case 'ub': {
+      lim({}, 6, 'tgo' + chat);
+      const open = await Promise.all((await mget((await db('LRANGE', 'tgo:' + chat, 0, 9)).map(i => 'o:' + i))).filter(o => o && o.status === 'pending').map(refresh));
+      if (open.filter(o => o.status === 'pending').length >= 3) bad('Kamu masih punya 3 pesanan yang belum dibayar. Selesaikan dulu atau tunggu kedaluwarsa.');
+      const vs = await db('GET', 'tgv:' + chat), o = await createOrder({ pid: x, qty: +y, tg: { id: chat, name: [from.first_name, from.last_name].filter(Boolean).join(' '), username: from.username || '' }, voucher: vs && vs.startsWith(x + '|') ? vs.split('|')[1] : '', origin: oriOf(t) });
+      await db('DEL', 'tgv:' + chat); return uPay(o, t);
+    }
+    case 'uos': return uOrders(chat); case 'uo': return uOrder(chat, x);
+    case 'uc': { const o = await J('o:' + x); if (o && o.tg && o.tg.id === chat) await refresh(o); return uOrder(chat, x); }
+  }
+  return uHome();
+}
+async function uText(chat, text, send) {
+  const sc = s => send(s.text, s.kb);
+  if (/^\/pesanan/.test(text)) return sc(await uOrders(chat)); if (/^\/katalog/.test(text)) return sc(await uCat());
+  const cs = await db('GET', 'tgc:' + chat);
+  if (cs && !text.startsWith('/')) {
+    const [, pid, qty] = cs.split('|'), p = await J('p:' + pid);
+    if (p) { try { const q = Math.max(1, +qty || 1), r = await vcCheck(vcCode(text), p.price * q); await db('SET', 'tgv:' + chat, pid + '|' + r.v.code); await db('DEL', 'tgc:' + chat); return sc(await uProd(chat, pid, q)); } catch (e) { return send('⚠️ ' + hx(e.message) + '\nCoba kode lain, atau tekan Batal.'); } }
+    await db('DEL', 'tgc:' + chat);
+  }
+  return sc(await uHome());
 }
 async function tgRoute(chat, data) {
   const [a, x, y] = String(data).split(':');
@@ -222,9 +279,10 @@ async function tgUpdate(u) {
   const send = (text, kb) => tgSafe(t, 'sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, ...(kb && { reply_markup: { inline_keyboard: kb } }) });
   const menu = async () => { const s = await scHome(); return send(s.text, s.kb); };
   if (cb) {
-    if (!isAdm) return tgSafe(t, 'answerCallbackQuery', { callback_query_id: cb.id, text: 'Tidak diizinkan', show_alert: true });
+    const cust = /^u/.test(cb.data || '');
+    if (!isAdm && !(cust && t.public !== false)) return tgSafe(t, 'answerCallbackQuery', { callback_query_id: cb.id, text: 'Tidak diizinkan', show_alert: true });
     await tgSafe(t, 'answerCallbackQuery', { callback_query_id: cb.id });
-    let s; try { s = await tgRoute(chat, cb.data || ''); } catch (e) { s = { text: '⚠️ ' + hx(e.message), kb: [HOME] }; } if (!s) return;
+    let s; try { s = cust ? await tgRouteU(t, chat, from, cb.data) : await tgRoute(chat, cb.data || ''); } catch (e) { s = { text: '⚠️ ' + hx(e.message), kb: [HOME] }; } if (!s) return;
     return tgCall(t.token, 'editMessageText', { chat_id: chat, message_id: msg.message_id, text: s.text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: s.kb } }).catch(e => /not modified/i.test(e.message) ? 0 : send(s.text, s.kb));
   }
   const text = String(m.text || '').trim(); if (!text) return;
@@ -234,7 +292,9 @@ async function tgUpdate(u) {
     const f = await tgCfg(); f.admins.push({ id: chat, name: [from.first_name, from.last_name].filter(Boolean).join(' ') || 'Admin', username: from.username || '', at: new Date().toISOString() }); f.code = rid(6); await W('tg', f);
     await send('✅ Akun Telegram ini sekarang terhubung ke website admin. Notifikasi order baru dan pembayaran akan masuk ke sini.'); return menu();
   }
-  if (!isAdm) return send('🔒 Bot ini khusus admin toko. Hubungkan lewat halaman admin > Telegram Bot.');
+  const cs = await db('GET', 'tgc:' + chat);
+  if (!isAdm) return t.public === false ? send('🔒 Bot ini sedang khusus admin toko.') : uText(chat, text, send);
+  if (/^\/(katalog|pesanan)/.test(text) || (cs && !text.startsWith('/'))) return uText(chat, text, send);
   if (st || /^\/menu/.test(text)) { await db('DEL', 'tgs:' + chat); return menu(); }
   if (/^\/batal/.test(text)) { await db('DEL', 'tgs:' + chat); return send('Dibatalkan.', [HOME]); }
   const inv = /^(?:\/invoice\s+)?([0-9A-Fa-f]{16})$/.exec(text); if (inv) { const s = await scInvoice(inv[1].toUpperCase()); return send(s.text, s.kb); }
@@ -256,6 +316,25 @@ async function tgPoll() {
   polling = false;
 }
 
+// ---------- Buat order (dipakai website dan bot Telegram) ----------
+const buyer = o => o.wa || (o.tg ? 'Telegram ' + (o.tg.username ? '@' + o.tg.username : o.tg.name || o.tg.id) : '-');
+async function createOrder({ pid, qty, phone, tg, voucher, origin }) {
+  const p = await J('p:' + String(pid || '').slice(0, 20)); if (!p || !p.active) bad('Produk tidak tersedia', 404);
+  if (qty < 1 || qty > 10) bad('Jumlah beli 1 sampai 10'); if (!tg && !phone) bad('Nomor WhatsApp tidak valid (contoh 0812xxxxxxxx)');
+  if ((await db('LLEN', 'q:' + p.id)) < qty) bad('Stok tidak cukup', 409);
+  const subtotal = p.price * qty; if (subtotal < 1000) bad('Total transaksi minimal Rp 1.000');
+  let v = null, discount = 0; const code = vcCode(voucher);
+  if (code) { ({ v, discount } = await vcCheck(code, subtotal)); if (!(await vcClaim(v))) bad('Kuota voucher sudah habis', 409); }
+  const amount = subtotal - discount, id = rid(8);
+  let d; try { d = await pay('/api/pay/create', { method: 'POST', body: JSON.stringify({ amount, reference: id, channel: E.PAY_CHANNEL || 'qris' }) }); }
+  catch (e) { if (v) await db('DECR', 'vu:' + v.code); throw e; }
+  const o = { id, pid: p.id, pname: p.name, type: p.type, price: p.price, qty, subtotal, discount, voucher: v ? v.code : null, amount, total: d.total || amount, wa: phone || null, tg: tg || null, status: 'pending', payId: d.id, payUrl: d.pay_url, qrUrl: d.qr_url, expiry: d.expiry || null, origin, createdAt: new Date().toISOString() };
+  await W('o:' + id, o); await db('LPUSH', 'orders', id); if (tg) await db('LPUSH', 'tgo:' + tg.id, id);
+  await sendWa(phone, `🧾 Pesanan dibuat\nInvoice: ${id}\nProduk: ${p.name} x${qty}\n` + (discount ? `Diskon (${v.code}): -${rp(discount)}\n` : '') + `Total bayar: ${rp(o.total)}\n\nBayar QRIS di: ${origin}/?inv=${id}\nAkun dikirim otomatis ke WhatsApp ini setelah pembayaran berhasil.`);
+  await tgNotify(`🛒 <b>Order baru</b>\nInvoice: <code>${id}</code>\n${hx(p.name)} x${qty}\nTotal: <b>${rp(o.total)}</b>\nPembeli: ${hx(buyer(o))}`);
+  return o;
+}
+
 // ---------- Routes ----------
 const R = {
   'GET /api/config': async () => cfg(),
@@ -266,21 +345,7 @@ const R = {
   },
   'GET /api/products': async () => (await withStock((await allProducts()).filter(p => p.active))).map(({ createdAt, active, pos, ...p }) => p),
   'POST /api/order': async c => {
-    lim(c, 12); const p = await J('p:' + String(c.b.pid || '').slice(0, 20)); if (!p || !p.active) bad('Produk tidak tersedia', 404);
-    const qty = int(c.b.qty) || 1, phone = normPhone(c.b.wa);
-    if (qty < 1 || qty > 10) bad('Jumlah beli 1 sampai 10'); if (!phone) bad('Nomor WhatsApp tidak valid (contoh 0812xxxxxxxx)');
-    if ((await db('LLEN', 'q:' + p.id)) < qty) bad('Stok tidak cukup', 409);
-    const subtotal = p.price * qty; if (subtotal < 1000) bad('Total transaksi minimal Rp 1.000');
-    let v = null, discount = 0; const code = vcCode(c.b.voucher);
-    if (code) { ({ v, discount } = await vcCheck(code, subtotal)); if (!(await vcClaim(v))) bad('Kuota voucher sudah habis', 409); }
-    const amount = subtotal - discount, id = rid(8);
-    let d; try { d = await pay('/api/pay/create', { method: 'POST', body: JSON.stringify({ amount, reference: id, channel: E.PAY_CHANNEL || 'qris' }) }); }
-    catch (e) { if (v) await db('DECR', 'vu:' + v.code); throw e; }
-    const o = { id, pid: p.id, pname: p.name, type: p.type, price: p.price, qty, subtotal, discount, voucher: v ? v.code : null, amount, total: d.total || amount, wa: phone, status: 'pending', payId: d.id, payUrl: d.pay_url, qrUrl: d.qr_url, expiry: d.expiry || null, origin: c.origin, createdAt: new Date().toISOString() };
-    await W('o:' + id, o); await db('LPUSH', 'orders', id);
-    await sendWa(phone, `🧾 Pesanan dibuat\nInvoice: ${id}\nProduk: ${p.name} x${qty}\n` + (discount ? `Diskon (${v.code}): -${rp(discount)}\n` : '') + `Total bayar: ${rp(o.total)}\n\nBayar QRIS di: ${c.origin}/?inv=${id}\nAkun dikirim otomatis ke WhatsApp ini setelah pembayaran berhasil.`);
-    await tgNotify(`🛒 <b>Order baru</b>\nInvoice: <code>${id}</code>\n${hx(p.name)} x${qty}\nTotal: <b>${rp(o.total)}</b>\nWA: ${hx(phone)}`);
-    return { id };
+    lim(c, 12); const o = await createOrder({ pid: c.b.pid, qty: int(c.b.qty) || 1, phone: normPhone(c.b.wa), voucher: c.b.voucher, origin: c.origin }); return { id: o.id };
   },
   'GET /api/order': async c => {
     lim(c, 120); const id = String(c.q.get('id') || '').toUpperCase(); if (!/^[0-9A-F]{16}$/.test(id)) bad('ID invoice tidak valid', 404);
@@ -352,13 +417,14 @@ const R = {
     if (old && old.token !== token) await tgCall(old.token, 'deleteWebhook', {}).catch(() => {});
     if (https) { await tgCall(token, 'setWebhook', { url: c.origin + '/api/telegram', secret_token: secret, allowed_updates: TG_UP }); mode = 'webhook'; }
     else { if (ON_VERCEL) bad('Domain harus HTTPS untuk webhook Telegram', 400); await tgCall(token, 'deleteWebhook', {}); mode = 'polling'; }
-    await tgCall(token, 'setMyCommands', { commands: [{ command: 'menu', description: 'Menu utama' }, { command: 'invoice', description: 'Lihat invoice: /invoice ID' }, { command: 'batal', description: 'Batalkan input' }] }).catch(() => {});
+    await tgCall(token, 'setMyCommands', { commands: [{ command: 'menu', description: 'Menu utama' }, { command: 'katalog', description: 'Lihat katalog produk' }, { command: 'pesanan', description: 'Pesanan saya' }, { command: 'invoice', description: 'Invoice (admin): /invoice ID' }, { command: 'batal', description: 'Batalkan input' }] }).catch(() => {});
     const keep = old && old.id === me.id;
-    await W('tg', { token, id: me.id, username: me.username, name: me.first_name, secret, mode, code: keep ? old.code : rid(6), admins: keep ? old.admins : [], connectedAt: keep ? old.connectedAt : new Date().toISOString() });
+    await W('tg', { token, id: me.id, username: me.username, name: me.first_name, secret, mode, code: keep ? old.code : rid(6), admins: keep ? old.admins : [], connectedAt: keep ? old.connectedAt : new Date().toISOString(), public: old ? old.public !== false : true, origin: c.origin });
     if (mode === 'polling') tgPoll(); return tgView(await tgCfg(), c);
   },
   'POST /api/admin/telegram/disconnect': async c => { adm(c); const t = await tgCfg(); if (t) { await tgCall(t.token, 'deleteWebhook', {}).catch(() => {}); await db('DEL', 'tg'); } return { ok: 1 }; },
   'POST /api/admin/telegram/code': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); t.code = rid(6); await W('tg', t); return tgView(t, c); },
+  'POST /api/admin/telegram/public': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); t.public = Boolean(c.b.on); await W('tg', t); return tgView(t, c); },
   'POST /api/admin/telegram/remove': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); t.admins = t.admins.filter(a => String(a.id) !== String(c.b.id)); await W('tg', t); return tgView(t, c); },
   'POST /api/admin/telegram/test': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); if (!t.admins.length) bad('Belum ada akun Telegram yang terhubung. Buka tautan hubungkan dulu.', 400); const s = await scHome(); await Promise.all(t.admins.map(a => tgCall(t.token, 'sendMessage', { chat_id: a.id, text: '🔔 Tes dari halaman admin.\n\n' + s.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: s.kb } }))); return { ok: 1, sent: t.admins.length }; },
   'GET /api/admin/telegram/status': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); const i = await tgCall(t.token, 'getWebhookInfo'); return { mode: t.mode, url: i.url || '', pending: i.pending_update_count || 0, error: i.last_error_message || '', errorAt: i.last_error_date ? new Date(i.last_error_date * 1000).toISOString() : '' }; },
