@@ -74,13 +74,15 @@ const pubOrder = o => ({ id: o.id, pname: o.pname, qty: o.qty, total: o.total, s
 async function deliver(o) { // ambil stok secara atomik (LPOP), kirim ke pembeli
   if (o.status !== 'paid' || !(await db('SETNX', 'dlv:' + o.id, '1'))) return o;
   const got = []; for (let i = 0; i < o.qty; i++) { const s = await db('LPOP', 'q:' + o.pid); if (!s) break; got.push(s); }
-  if (got.length < o.qty) { for (const s of got.reverse()) await db('LPUSH', 'q:' + o.pid, s); await db('DEL', 'dlv:' + o.id); o.note = 'Pembayaran diterima. Stok sedang diisi ulang, akun dikirim secepatnya oleh admin.'; await W('o:' + o.id, o); return o; }
+  if (got.length < o.qty) { for (const s of got.reverse()) await db('LPUSH', 'q:' + o.pid, s); await db('DEL', 'dlv:' + o.id); const first = !o.note; o.note = 'Pembayaran diterima. Stok sedang diisi ulang, akun dikirim secepatnya oleh admin.'; await W('o:' + o.id, o);
+    if (first) await tgNotify(`⚠️ <b>Dibayar tapi stok habis</b>\nInvoice: <code>${o.id}</code>\n${hx(o.pname)} x${o.qty}\nIsi stok lalu tekan "Kirim akun" di Riwayat Order.`); return o; }
   const items = await mget(got.map(s => 's:' + s));
   for (const it of items) { it.sold = true; it.order = o.id; await W('s:' + it.id, it); }
   o.items = items.map(i => i.data); o.status = 'done'; o.doneAt = new Date().toISOString(); delete o.note; await W('o:' + o.id, o);
   await Promise.all([
     sendWa(o.wa, `✅ Pembayaran berhasil!\nInvoice: ${o.id}\nProduk: ${o.pname} x${o.qty}\n\n` + o.items.map((d, i) => (o.qty > 1 ? `--- Akun ${i + 1} ---\n` : '') + fmt(d)).join('\n\n') + `\n\nSimpan pesan ini. Detail juga ada di ${o.origin}/?inv=${o.id}`),
-    waAdmin(`Penjualan sukses\nInvoice: ${o.id}\n${o.pname} x${o.qty}\nTotal: ${rp(o.total)}\nWA: ${o.wa}`)]);
+    waAdmin(`Penjualan sukses\nInvoice: ${o.id}\n${o.pname} x${o.qty}\nTotal: ${rp(o.total)}\nWA: ${o.wa}`),
+    tgNotify(`✅ <b>Penjualan sukses</b>\nInvoice: <code>${o.id}</code>\n${hx(o.pname)} x${o.qty}\nTotal: <b>${rp(o.total)}</b>\nWA: ${hx(o.wa)}`)]);
   return o;
 }
 async function refresh(o) {
@@ -105,7 +107,24 @@ const clean = b => {
   return { name, desc: String(b.desc || '').trim().slice(0, 600), price, type: b.type === 'link' ? 'link' : 'akun', category: String(b.category || '').trim().slice(0, 30), badge: ['HOT', 'AUTO', 'NEW'].includes(b.badge) ? b.badge : '', icon, active: b.active !== false };
 };
 const withStock = async ps => Promise.all(ps.map(async p => ({ ...p, stock: await db('LLEN', 'q:' + p.id) })));
-const allProducts = async () => (await mget((await db('SMEMBERS', 'idx:prod')).map(i => 'p:' + i))).filter(Boolean).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+const posOf = p => (p.pos ?? Date.parse(p.createdAt)) || 0; // urutan tampil; produk lama tanpa pos mengikuti waktu dibuat
+const allProducts = async () => (await mget((await db('SMEMBERS', 'idx:prod')).map(i => 'p:' + i))).filter(Boolean).sort((a, b) => posOf(a) - posOf(b) || (a.createdAt < b.createdAt ? -1 : 1));
+async function reorder(ids) { // simpan urutan baru; id yang tidak disebut ditaruh di belakang
+  const all = await allProducts(), by = new Map(all.map(p => [p.id, p])), seq = [...new Set(ids.map(String))].filter(i => by.has(i)).map(i => by.get(i));
+  for (const p of all) if (!seq.includes(p)) seq.push(p);
+  await Promise.all(seq.map((p, i) => p.pos === i + 1 ? 0 : W('p:' + p.id, { ...p, pos: i + 1 })));
+}
+async function addStock(p, raw) {
+  const lines = String(raw || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean); if (!lines.length) bad('Isi stok kosong'); if (lines.length > 300) bad('Maksimal 300 baris sekali tambah');
+  const recs = lines.map((l, i) => {
+    let data;
+    if (p.type === 'link') { if (!/^https?:\/\/\S+$/.test(l)) bad(`Baris ${i + 1}: harus berupa link http(s)`); data = { link: l }; }
+    else { const [email, password, pin, profile, a2f] = l.split('|').map(s => s.trim()); if (!email || !password) bad(`Baris ${i + 1}: format email|password|pin|profile|a2f (pin, profile, a2f boleh kosong)`); data = { email, password, ...(pin && { pin }), ...(profile && { profile }), ...(a2f && { a2f }) }; }
+    return { id: 'S' + rid(6), pid: p.id, data, sold: false, createdAt: new Date().toISOString() };
+  });
+  await db('MSET', ...recs.flatMap(r => ['s:' + r.id, JSON.stringify(r)])); await db('SADD', 'idx:s:' + p.id, ...recs.map(r => r.id)); await db('RPUSH', 'q:' + p.id, ...recs.map(r => r.id));
+  return recs.length;
+}
 
 const okImg = i => !i || (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(i) && i.length < 150000) || /^https:\/\/\S{4,500}$/.test(i);
 const cfg = async () => ({ name: SITE, logo: '', ...((await J('cfg')) || {}) });
@@ -122,6 +141,121 @@ async function vcCheck(code, sub) { // validasi voucher, kembalikan {v, discount
 }
 const vcClaim = async v => { const n = await db('INCR', 'vu:' + v.code); if (v.quota && n > v.quota) { await db('DECR', 'vu:' + v.code); return false; } return true; };
 
+// ---------- Telegram bot (dikelola dari admin: token disimpan di database, tidak pernah dikirim balik ke browser) ----------
+const TG_UP = ['message', 'callback_query'];
+const hx = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const tgCfg = () => J('tg');
+async function tgCall(token, method, body = {}, ms = 12000) {
+  const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(ms) }).catch(e => bad('Telegram tidak terjangkau: ' + e.message, 502));
+  const j = await r.json().catch(() => ({})); if (!j.ok) bad('Telegram: ' + (j.description || r.status), 400); return j.result;
+}
+const tgSafe = (t, method, body) => tgCall(t.token, method, body).catch(e => console.error('[tg]', e.message));
+async function tgNotify(text) { // notifikasi ke semua admin yang sudah terhubung; gagal tidak boleh menggagalkan transaksi
+  try { const t = await tgCfg(); if (t && t.admins.length) await Promise.all(t.admins.map(a => tgSafe(t, 'sendMessage', { chat_id: a.id, text, parse_mode: 'HTML', disable_web_page_preview: true }))); } catch (e) { console.error('[tg]', e.message); }
+}
+const tgView = (t, c) => t && ({ connected: true, username: t.username, name: t.name, mode: t.mode, code: t.code, link: `https://t.me/${t.username}?start=${t.code}`, admins: t.admins, connectedAt: t.connectedAt, webhook: c ? c.origin + '/api/telegram' : '' });
+const EMO = { pending: '⏳', paid: '🔵', done: '✅', expire: '❌' }, SLB = { pending: '⏳ Menunggu bayar', paid: '🔵 Perlu diproses', done: '✅ Selesai', expire: '❌ Kedaluwarsa' };
+const wib = s => s ? new Date(s).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+const dkey = ms => new Date(ms + 7 * 36e5).toISOString().slice(0, 10); // tanggal WIB
+const loadOrders = async n => (await mget((await db('LRANGE', 'orders', 0, n - 1)).map(i => 'o:' + i))).filter(Boolean);
+const btn = (text, data) => ({ text, callback_data: data }), HOME = [btn('🏠 Menu utama', 'home')], PG = 6;
+const invText = o => `🧾 <b>INVOICE</b> <code>${o.id}</code>\n${SLB[o.status]}\n\nTanggal: ${wib(o.createdAt)}\nPembeli (WA): ${hx(o.wa)}\nProduk: ${hx(o.pname)}\nJumlah: ${o.qty} x ${rp(o.price)} = ${rp(o.subtotal ?? o.price * o.qty)}\n` + (o.discount ? `Diskon (${hx(o.voucher)}): -${rp(o.discount)}\n` : '') + `<b>Total bayar: ${rp(o.total)}</b>\nDibayar: ${wib(o.paidAt)}\n` + (o.status === 'done' && o.items ? '\n<b>Akun terkirim:</b>\n' + o.items.map((d, i) => (o.qty > 1 ? `#${i + 1}\n` : '') + `<code>${hx(fmt(d))}</code>`).join('\n') : '') + (o.note ? `\n⚠️ ${hx(o.note)}` : '');
+
+async function scHome() {
+  const os = await loadOrders(200), n = s => os.filter(o => o.status === s).length, ps = await withStock(await allProducts());
+  return { text: `<b>${hx((await cfg()).name)}</b> · Panel Admin\n\n⏳ Menunggu bayar: <b>${n('pending')}</b>\n🔵 Perlu diproses: <b>${n('paid')}</b>\n✅ Selesai: <b>${n('done')}</b>\n📦 Produk stok habis: <b>${ps.filter(p => p.active && !p.stock).length}</b>\n\nPilih menu:`,
+    kb: [[btn('📋 Riwayat Order', 'ord:0'), btn('📦 Stok', 'stk')], [btn('🛍 Produk & Urutan', 'prd'), btn('💳 Pembayaran', 'pay')], [btn('🧾 Invoice', 'inv:0')]] };
+}
+async function scList(page, mode) { // mode o = riwayat order, iv = invoice
+  const os = await loadOrders(200), pages = Math.max(1, Math.ceil(os.length / PG)), key = mode === 'o' ? 'ord' : 'inv'; page = Math.min(Math.max(0, page | 0), pages - 1);
+  const kb = os.slice(page * PG, page * PG + PG).map(o => [btn(`${EMO[o.status]} ${o.id.slice(0, 6)} · ${o.pname.slice(0, 18)} x${o.qty} · ${rp(o.total)}`, `${mode}:${o.id}`)]), nav = [];
+  if (page > 0) nav.push(btn('⬅️', `${key}:${page - 1}`)); nav.push(btn(`${page + 1}/${pages}`, 'nop')); if (page < pages - 1) nav.push(btn('➡️', `${key}:${page + 1}`)); kb.push(nav, HOME);
+  return { text: mode === 'o' ? `📋 <b>Riwayat Order</b> (${os.length} terbaru)\nPilih order untuk melihat detail:` : `🧾 <b>Invoice</b>\nPilih order, atau ketik ID invoice (16 karakter) langsung di chat ini.`, kb };
+}
+async function scOrder(id) {
+  const o = await J('o:' + id); if (!o) return { text: 'Order tidak ditemukan.', kb: [HOME] }; const kb = [];
+  if (o.status === 'pending') kb.push([btn('🔄 Cek pembayaran', 'chk:' + id)]); if (o.status === 'paid') kb.push([btn('📤 Kirim akun', 'rd:' + id)]);
+  kb.push([btn('🧾 Invoice', 'iv:' + id)], [btn('⬅️ Riwayat', 'ord:0'), ...HOME]);
+  return { text: `📋 <b>Order</b> <code>${o.id}</code>\n${SLB[o.status]}\n\nProduk: ${hx(o.pname)} x${o.qty}\nTotal: <b>${rp(o.total)}</b>${o.discount ? ` (diskon ${rp(o.discount)})` : ''}\nWA: ${hx(o.wa)}\nDibuat: ${wib(o.createdAt)}` + (o.note ? `\n\n⚠️ ${hx(o.note)}` : ''), kb };
+}
+async function scInvoice(id) { const o = await J('o:' + id); return o ? { text: invText(o), kb: [[btn('📋 Detail order', 'o:' + id), btn('⬅️ Daftar', 'inv:0')], HOME] } : { text: 'Invoice tidak ditemukan.', kb: [[btn('⬅️ Daftar', 'inv:0')], HOME] }; }
+async function scStock() {
+  const ps = await withStock(await allProducts());
+  return { text: '📦 <b>Stok produk</b>\n\n' + (ps.map(p => `${p.stock ? '🟢' : '🔴'} ${hx(p.name)}: <b>${p.stock}</b>`).join('\n') || 'Belum ada produk.') + '\n\nPilih produk untuk menambah stok:', kb: [...ps.map(p => [btn(`${p.name.slice(0, 28)} (${p.stock})`, 'sk:' + p.id)]), HOME] };
+}
+async function scProd(pid) {
+  const p = await J('p:' + pid); if (!p) return { text: 'Produk tidak ditemukan.', kb: [[btn('⬅️ Stok', 'stk')], HOME] };
+  return { text: `📦 <b>${hx(p.name)}</b>\nHarga: ${rp(p.price)}\nStok tersedia: <b>${await db('LLEN', 'q:' + p.id)}</b>\nJenis: ${p.type === 'link' ? 'link' : 'akun'}`, kb: [[btn('➕ Tambah stok', 'ad:' + pid)], [btn('⬅️ Stok', 'stk'), ...HOME]] };
+}
+async function scOrderList() {
+  const ps = await withStock(await allProducts());
+  return { text: '🛍 <b>Produk & Urutan</b>\nUrutan ini sama dengan urutan di toko.\n⬆️⬇️ pindahkan posisi · tap nama untuk tampil/sembunyikan.\n\n' + (ps.map((p, i) => `${i + 1}. ${p.active ? '🟢' : '⚫'} ${hx(p.name)} · ${rp(p.price)} · stok ${p.stock}`).join('\n') || 'Belum ada produk.'),
+    kb: [...ps.map((p, i) => [btn(`${p.active ? '🟢' : '⚫'} ${i + 1}. ${p.name.slice(0, 20)}`, 'tp:' + p.id), btn('⬆️', 'mv:' + p.id + ':u'), btn('⬇️', 'mv:' + p.id + ':d')]), HOME] };
+}
+async function scPay() {
+  const os = await loadOrders(200), t0 = dkey(Date.now()), sold = os.filter(o => o.status === 'paid' || o.status === 'done'), at = o => dkey(Date.parse(o.paidAt || o.createdAt));
+  const sum = f => rp(sold.filter(o => f(at(o))).reduce((a, o) => a + o.total, 0)), pend = os.filter(o => o.status === 'pending');
+  return { text: `💳 <b>Pembayaran</b>\n\nPemasukan hari ini: <b>${sum(d => d === t0)}</b>\nPemasukan bulan ini: <b>${sum(d => d.slice(0, 7) === t0.slice(0, 7))}</b>\nTotal (200 order terakhir): <b>${sum(() => true)}</b>\n\n⏳ Menunggu bayar: <b>${pend.length}</b> (${rp(pend.reduce((a, o) => a + o.total, 0))})\n✅ Lunas: <b>${sold.length}</b>\n❌ Kedaluwarsa: <b>${os.filter(o => o.status === 'expire').length}</b>`,
+    kb: [...pend.slice(0, 8).map(o => [btn(`🔄 Cek ${o.id.slice(0, 6)} · ${rp(o.total)}`, 'chk:' + o.id)]), ...(pend.length ? [[btn('🔄 Cek semua pending', 'chkall')]] : []), [btn('📋 Riwayat', 'ord:0'), ...HOME]] };
+}
+async function tgRoute(chat, data) {
+  const [a, x, y] = String(data).split(':');
+  switch (a) {
+    case 'home': return scHome(); case 'nop': return null;
+    case 'ord': return scList(+x, 'o'); case 'inv': return scList(+x, 'iv');
+    case 'o': return scOrder(x); case 'iv': return scInvoice(x);
+    case 'chk': { const o = await J('o:' + x); if (o) await refresh(o); return scOrder(x); }
+    case 'rd': { const o = await J('o:' + x); if (o) { const r = await refresh(o); if (r.status === 'paid') await deliver(r); } return scOrder(x); }
+    case 'chkall': { const ps = (await loadOrders(200)).filter(o => o.status === 'pending').slice(0, 15); await Promise.all(ps.map(refresh)); return scPay(); }
+    case 'stk': return scStock(); case 'sk': return scProd(x);
+    case 'ad': { const p = await J('p:' + x); if (!p) return scStock(); await db('SET', 'tgs:' + chat, p.id); return { text: `➕ <b>Tambah stok: ${hx(p.name)}</b>\n\nKirim sekarang, satu baris per ${p.type === 'link' ? 'link' : 'akun'}:\n<code>${p.type === 'link' ? 'https://link-satu\nhttps://link-dua' : 'email|password|pin|profile|a2f'}</code>\n(pin, profile, a2f boleh dikosongkan)\n\nKetik /batal untuk membatalkan.`, kb: [[btn('✖️ Batal', 'sk:' + p.id)]] }; }
+    case 'prd': return scOrderList();
+    case 'mv': { const ids = (await allProducts()).map(p => p.id), i = ids.indexOf(x), j = i + (y === 'u' ? -1 : 1); if (i >= 0 && j >= 0 && j < ids.length) { [ids[i], ids[j]] = [ids[j], ids[i]]; await reorder(ids); } return scOrderList(); }
+    case 'tp': { const p = await J('p:' + x); if (p) await W('p:' + x, { ...p, active: p.active === false }); return scOrderList(); }
+    case 'pay': return scPay();
+  }
+  return scHome();
+}
+async function tgUpdate(u) {
+  const t = await tgCfg(), cb = u.callback_query, m = u.message, msg = cb ? cb.message : m; if (!t || !msg || msg.chat.type !== 'private') return;
+  const chat = msg.chat.id, from = (cb || m).from || {}, isAdm = t.admins.some(a => a.id === chat);
+  const send = (text, kb) => tgSafe(t, 'sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, ...(kb && { reply_markup: { inline_keyboard: kb } }) });
+  const menu = async () => { const s = await scHome(); return send(s.text, s.kb); };
+  if (cb) {
+    if (!isAdm) return tgSafe(t, 'answerCallbackQuery', { callback_query_id: cb.id, text: 'Tidak diizinkan', show_alert: true });
+    await tgSafe(t, 'answerCallbackQuery', { callback_query_id: cb.id });
+    let s; try { s = await tgRoute(chat, cb.data || ''); } catch (e) { s = { text: '⚠️ ' + hx(e.message), kb: [HOME] }; } if (!s) return;
+    return tgCall(t.token, 'editMessageText', { chat_id: chat, message_id: msg.message_id, text: s.text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: s.kb } }).catch(e => /not modified/i.test(e.message) ? 0 : send(s.text, s.kb));
+  }
+  const text = String(m.text || '').trim(); if (!text) return;
+  const st = /^\/start(?:@\w+)?(?:\s+(\S+))?/.exec(text);
+  if (st && st[1] && !isAdm) { // pairing: /start KODE dari tautan di halaman admin
+    if (st[1] !== t.code) return send('❌ Kode tidak valid atau sudah dipakai. Ambil tautan baru di halaman admin > Telegram Bot.');
+    const f = await tgCfg(); f.admins.push({ id: chat, name: [from.first_name, from.last_name].filter(Boolean).join(' ') || 'Admin', username: from.username || '', at: new Date().toISOString() }); f.code = rid(6); await W('tg', f);
+    await send('✅ Akun Telegram ini sekarang terhubung ke website admin. Notifikasi order baru dan pembayaran akan masuk ke sini.'); return menu();
+  }
+  if (!isAdm) return send('🔒 Bot ini khusus admin toko. Hubungkan lewat halaman admin > Telegram Bot.');
+  if (st || /^\/menu/.test(text)) { await db('DEL', 'tgs:' + chat); return menu(); }
+  if (/^\/batal/.test(text)) { await db('DEL', 'tgs:' + chat); return send('Dibatalkan.', [HOME]); }
+  const inv = /^(?:\/invoice\s+)?([0-9A-Fa-f]{16})$/.exec(text); if (inv) { const s = await scInvoice(inv[1].toUpperCase()); return send(s.text, s.kb); }
+  const pid = await db('GET', 'tgs:' + chat);
+  if (pid && !text.startsWith('/')) {
+    const p = await J('p:' + pid); await db('DEL', 'tgs:' + chat); if (!p) return send('Produk tidak ditemukan.', [HOME]);
+    try { const n = await addStock(p, text); return send(`✅ ${n} stok ditambahkan ke <b>${hx(p.name)}</b>.`, [[btn('📦 Stok', 'stk'), ...HOME]]); } catch (e) { await db('SET', 'tgs:' + chat, pid); return send('⚠️ ' + hx(e.message) + '\n\nKirim ulang, atau ketik /batal.'); }
+  }
+  return menu();
+}
+let polling = false; // mode polling hanya untuk server lokal tanpa HTTPS; di Vercel dipakai webhook
+async function tgPoll() {
+  if (polling || ON_VERCEL) return; polling = true; let off = 0;
+  for (;;) {
+    const t = await tgCfg().catch(() => null); if (!t || t.mode !== 'polling') break;
+    try { for (const u of await tgCall(t.token, 'getUpdates', { offset: off, timeout: 25, allowed_updates: TG_UP }, 35000)) { off = u.update_id + 1; await tgUpdate(u).catch(e => console.error('[tg]', e.message)); } }
+    catch (e) { console.error('[tg poll]', e.message); await new Promise(r => setTimeout(r, 5000)); }
+  }
+  polling = false;
+}
+
 // ---------- Routes ----------
 const R = {
   'GET /api/config': async () => cfg(),
@@ -130,7 +264,7 @@ const R = {
     const sub = p.price * (Math.min(10, Math.max(1, int(c.b.qty) || 1))), r = await vcCheck(vcCode(c.b.code), sub);
     return { code: r.v.code, discount: r.discount, total: sub - r.discount };
   },
-  'GET /api/products': async () => (await withStock((await allProducts()).filter(p => p.active))).map(({ createdAt, active, ...p }) => p),
+  'GET /api/products': async () => (await withStock((await allProducts()).filter(p => p.active))).map(({ createdAt, active, pos, ...p }) => p),
   'POST /api/order': async c => {
     lim(c, 12); const p = await J('p:' + String(c.b.pid || '').slice(0, 20)); if (!p || !p.active) bad('Produk tidak tersedia', 404);
     const qty = int(c.b.qty) || 1, phone = normPhone(c.b.wa);
@@ -145,6 +279,7 @@ const R = {
     const o = { id, pid: p.id, pname: p.name, type: p.type, price: p.price, qty, subtotal, discount, voucher: v ? v.code : null, amount, total: d.total || amount, wa: phone, status: 'pending', payId: d.id, payUrl: d.pay_url, qrUrl: d.qr_url, expiry: d.expiry || null, origin: c.origin, createdAt: new Date().toISOString() };
     await W('o:' + id, o); await db('LPUSH', 'orders', id);
     await sendWa(phone, `🧾 Pesanan dibuat\nInvoice: ${id}\nProduk: ${p.name} x${qty}\n` + (discount ? `Diskon (${v.code}): -${rp(discount)}\n` : '') + `Total bayar: ${rp(o.total)}\n\nBayar QRIS di: ${c.origin}/?inv=${id}\nAkun dikirim otomatis ke WhatsApp ini setelah pembayaran berhasil.`);
+    await tgNotify(`🛒 <b>Order baru</b>\nInvoice: <code>${id}</code>\n${hx(p.name)} x${qty}\nTotal: <b>${rp(o.total)}</b>\nWA: ${hx(phone)}`);
     return { id };
   },
   'GET /api/order': async c => {
@@ -167,13 +302,16 @@ const R = {
     adm(c); const ids = await db('LRANGE', 'orders', 0, 199);
     const vcs = (await mget((await db('SMEMBERS', 'idx:vc')).map(i => 'vc:' + i))).filter(Boolean).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     for (const v of vcs) v.used = await vcUsed(v.code);
-    return { settings: await cfg(), vouchers: vcs, products: await withStock(await allProducts()), orders: (await mget(ids.map(i => 'o:' + i))).filter(Boolean).map(({ items, ...o }) => o) };
+    return { settings: await cfg(), telegram: tgView(await tgCfg(), c) || { connected: false }, pay: { keySet: Boolean(E.PAY_KEY), channel: E.PAY_CHANNEL || 'qris', base: PAY, webhook: c.origin + '/api/webhook' }, vouchers: vcs, products: await withStock(await allProducts()), orders: (await mget(ids.map(i => 'o:' + i))).filter(Boolean).map(({ items, ...o }) => o) };
   },
   'POST /api/admin/product': async c => {
     adm(c); const d = clean(c.b), old = c.b.id ? await J('p:' + String(c.b.id)) : null; if (c.b.id && !old) bad('Produk tidak ditemukan', 404);
     const p = { ...(old || {}), ...d, id: old ? old.id : 'P' + rid(4), createdAt: old ? old.createdAt : new Date().toISOString() };
+    if (!old) p.pos = Date.now(); // produk baru selalu di urutan terakhir
     await W('p:' + p.id, p); await db('SADD', 'idx:prod', p.id); return { ok: 1, id: p.id };
   },
+  'POST /api/admin/product/order': async c => { adm(c); if (!Array.isArray(c.b.ids)) bad('Urutan tidak valid'); await reorder(c.b.ids); return { ok: 1 }; },
+  'GET /api/admin/invoice': async c => { adm(c); const o = await J('o:' + String(c.q.get('id') || '').toUpperCase()); if (!o) bad('Invoice tidak ditemukan', 404); const { origin, ...r } = o; return r; },
   'POST /api/admin/product/delete': async c => { adm(c); const id = String(c.b.id || ''); await db('SREM', 'idx:prod', id); await db('DEL', 'p:' + id); return { ok: 1 }; },
   'POST /api/admin/settings': async c => {
     adm(c); const name = String(c.b.name || '').trim().slice(0, 40), logo = String(c.b.logo || '').trim();
@@ -195,21 +333,35 @@ const R = {
   },
   'POST /api/admin/stock/add': async c => {
     adm(c); const p = await J('p:' + String(c.b.pid || '')); if (!p) bad('Produk tidak ditemukan', 404);
-    const lines = String(c.b.lines || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean); if (!lines.length) bad('Isi stok kosong'); if (lines.length > 300) bad('Maksimal 300 baris sekali tambah');
-    const recs = lines.map((l, i) => {
-      let data;
-      if (p.type === 'link') { if (!/^https?:\/\/\S+$/.test(l)) bad(`Baris ${i + 1}: harus berupa link http(s)`); data = { link: l }; }
-      else { const [email, password, pin, profile, a2f] = l.split('|').map(s => s.trim()); if (!email || !password) bad(`Baris ${i + 1}: format email|password|pin|profile|a2f (pin, profile, a2f boleh kosong)`); data = { email, password, ...(pin && { pin }), ...(profile && { profile }), ...(a2f && { a2f }) }; }
-      return { id: 'S' + rid(6), pid: p.id, data, sold: false, createdAt: new Date().toISOString() };
-    });
-    await db('MSET', ...recs.flatMap(r => ['s:' + r.id, JSON.stringify(r)])); await db('SADD', 'idx:s:' + p.id, ...recs.map(r => r.id)); await db('RPUSH', 'q:' + p.id, ...recs.map(r => r.id));
-    return { ok: 1, added: recs.length };
+    return { ok: 1, added: await addStock(p, c.b.lines) };
   },
   'POST /api/admin/stock/delete': async c => {
     adm(c); const it = await J('s:' + String(c.b.id || '')); if (!it) bad('Stok tidak ditemukan', 404);
     if (it.sold || !(await db('LREM', 'q:' + it.pid, 1, it.id))) bad('Stok sudah terjual / sedang diambil', 409);
     await db('DEL', 's:' + it.id); await db('SREM', 'idx:s:' + it.pid, it.id); return { ok: 1 };
   },
+  // ---- telegram ----
+  'POST /api/telegram': async c => { // webhook dari Telegram, diverifikasi dengan secret token
+    const t = await tgCfg(), s = String(c.hd['x-telegram-bot-api-secret-token'] || ''); if (!t || t.mode !== 'webhook' || !s || s !== t.secret) bad('Forbidden', 403);
+    await tgUpdate(c.b).catch(e => console.error('[tg]', e.message)); return { ok: 1 };
+  },
+  'POST /api/admin/telegram/connect': async c => { // token kosong = sinkron ulang memakai token yang tersimpan
+    adm(c); lim(c, 10); const old = await tgCfg(), token = String(c.b.token || '').trim() || (old && old.token) || '';
+    if (!/^\d{5,14}:[\w-]{20,60}$/.test(token)) bad('Format token salah. Salin token dari @BotFather (contoh 123456789:AAH...)');
+    const me = await tgCall(token, 'getMe'), secret = rid(16), https = /^https:\/\//.test(c.origin); let mode;
+    if (old && old.token !== token) await tgCall(old.token, 'deleteWebhook', {}).catch(() => {});
+    if (https) { await tgCall(token, 'setWebhook', { url: c.origin + '/api/telegram', secret_token: secret, allowed_updates: TG_UP }); mode = 'webhook'; }
+    else { if (ON_VERCEL) bad('Domain harus HTTPS untuk webhook Telegram', 400); await tgCall(token, 'deleteWebhook', {}); mode = 'polling'; }
+    await tgCall(token, 'setMyCommands', { commands: [{ command: 'menu', description: 'Menu utama' }, { command: 'invoice', description: 'Lihat invoice: /invoice ID' }, { command: 'batal', description: 'Batalkan input' }] }).catch(() => {});
+    const keep = old && old.id === me.id;
+    await W('tg', { token, id: me.id, username: me.username, name: me.first_name, secret, mode, code: keep ? old.code : rid(6), admins: keep ? old.admins : [], connectedAt: keep ? old.connectedAt : new Date().toISOString() });
+    if (mode === 'polling') tgPoll(); return tgView(await tgCfg(), c);
+  },
+  'POST /api/admin/telegram/disconnect': async c => { adm(c); const t = await tgCfg(); if (t) { await tgCall(t.token, 'deleteWebhook', {}).catch(() => {}); await db('DEL', 'tg'); } return { ok: 1 }; },
+  'POST /api/admin/telegram/code': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); t.code = rid(6); await W('tg', t); return tgView(t, c); },
+  'POST /api/admin/telegram/remove': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); t.admins = t.admins.filter(a => String(a.id) !== String(c.b.id)); await W('tg', t); return tgView(t, c); },
+  'POST /api/admin/telegram/test': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); if (!t.admins.length) bad('Belum ada akun Telegram yang terhubung. Buka tautan hubungkan dulu.', 400); const s = await scHome(); await Promise.all(t.admins.map(a => tgCall(t.token, 'sendMessage', { chat_id: a.id, text: '🔔 Tes dari halaman admin.\n\n' + s.text, parse_mode: 'HTML', reply_markup: { inline_keyboard: s.kb } }))); return { ok: 1, sent: t.admins.length }; },
+  'GET /api/admin/telegram/status': async c => { adm(c); const t = await tgCfg(); if (!t) bad('Bot belum terhubung', 400); const i = await tgCall(t.token, 'getWebhookInfo'); return { mode: t.mode, url: i.url || '', pending: i.pending_update_count || 0, error: i.last_error_message || '', errorAt: i.last_error_date ? new Date(i.last_error_date * 1000).toISOString() : '' }; },
   'POST /api/admin/order': async c => { // cek ulang pembayaran / kirim ulang akun setelah stok diisi
     adm(c); const o = await J('o:' + String(c.b.id || '')); if (!o) bad('Order tidak ditemukan', 404);
     const r = await refresh(o); if (c.b.action === 'redeliver' && r.status === 'paid') await deliver(r); return { ok: 1 };
@@ -232,9 +384,9 @@ const handler = async (req, res) => {
     const fn = R[req.method + ' ' + pn]; if (!fn) bad('Not found', 404);
     let b = req.body; if (typeof b === 'string' && b) { try { b = JSON.parse(b); } catch { bad('JSON tidak valid'); } }
     if (!b || typeof b !== 'object') { let raw = ''; for await (const ch of req) { raw += ch; if (raw.length > 4e5) bad('Body terlalu besar', 413); } try { b = raw ? JSON.parse(raw) : {}; } catch { bad('JSON tidak valid'); } }
-    const c = { b, path: pn, q: url.searchParams, h: {}, admin: isAdmin(req), origin: origin(req), ip: clientIp(req), https: req.headers['x-forwarded-proto'] === 'https' || Boolean(req.socket.encrypted) };
+    const c = { b, hd: req.headers, path: pn, q: url.searchParams, h: {}, admin: isAdmin(req), origin: origin(req), ip: clientIp(req), https: req.headers['x-forwarded-proto'] === 'https' || Boolean(req.socket.encrypted) };
     out(200, await fn(c), c.h);
   } catch (e) { if (!e.code) console.error(e); out(e.code || 500, { error: e.code ? e.message : 'Kesalahan server' }); }
 };
 module.exports = handler;
-if (require.main === module) http.createServer(handler).listen(E.PORT || 3000, () => console.log('[Shop] port', E.PORT || 3000, '| db:', REDIS ? 'Upstash' : 'file'));
+if (require.main === module) http.createServer(handler).listen(E.PORT || 3000, () => { console.log('[Shop] port', E.PORT || 3000, '| db:', REDIS ? 'Upstash' : 'file'); tgCfg().then(t => t && t.mode === 'polling' && tgPoll()).catch(() => {}); });
